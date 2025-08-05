@@ -48,18 +48,18 @@
           <el-table-column label="最近一次 Job" min-width="60">
             <template #default="{ row }">
               <el-tag
-                v-if="row.latestBuild"
+                v-if="row.lastBuild"
                 :type="
                   getBuildStatusType(
-                    row.latestBuild.result,
-                    row.latestBuild.building
+                    row.lastBuild.result,
+                    row.lastBuild.building
                   )
                 "
               >
                 {{
                   getBuildStatusText(
-                    row.latestBuild.result,
-                    row.latestBuild.building
+                    row.lastBuild.result,
+                    row.lastBuild.building
                   )
                 }}
               </el-tag>
@@ -68,17 +68,17 @@
           </el-table-column>
           <el-table-column label="Change Message" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ row.latestBuild?.changeSet?.items[0]?.msg || "-" }}
+              {{ row.lastBuild?.changeSet?.items[0]?.msg || "-" }}
             </template>
           </el-table-column>
           <el-table-column
             label="Build Time"
             sortable
-            sort-by="latestBuild.timestamp"
+            sort-by="lastBuild.timestamp"
             min-width="98"
           >
             <template #default="{ row }">
-              {{ formatTimestamp(row.latestBuild?.timestamp) }}
+              {{ formatTimestamp(row.lastBuild?.timestamp) }}
             </template>
           </el-table-column>
           <el-table-column label="操作" min-width="70">
@@ -333,7 +333,7 @@ async function refreshAllJobs() {
     const jobsData = await jenkinsApi.getJobsWithLatestBuild();
     allJobs.value = jobsData.jobs.sort(
       (a, b) =>
-        (b.latestBuild?.timestamp || 0) - (a.latestBuild?.timestamp || 0)
+        (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
     );
   }, "刷新 Job 列表失败");
 }
