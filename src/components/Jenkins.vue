@@ -37,6 +37,7 @@
           <el-table-column
             prop="name"
             label="Name"
+            min-width="150"
             sortable
             show-overflow-tooltip
           >
@@ -44,7 +45,7 @@
               <span v-html="highlightMatchedText(row.name, searchQuery)"></span>
             </template>
           </el-table-column>
-          <el-table-column label="最近一次 Job" width="100">
+          <el-table-column label="最近一次 Job" min-width="60">
             <template #default="{ row }">
               <el-tag
                 v-if="row.latestBuild"
@@ -74,13 +75,13 @@
             label="Build Time"
             sortable
             sort-by="latestBuild.timestamp"
-            width="140"
+            min-width="98"
           >
             <template #default="{ row }">
               {{ formatTimestamp(row.latestBuild?.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column label="操作" min-width="70">
             <template #default="{ row }">
               <el-tooltip content="刷新" placement="top">
                 <el-button
@@ -116,13 +117,18 @@
         style="max-height: 60vh; overflow-y: auto"
       >
         <el-table :data="displayedBuilds" style="width: 100%" stripe border>
-          <el-table-column prop="number" label="No" width="60" />
-          <el-table-column prop="url" label="URL" show-overflow-tooltip>
+          <el-table-column prop="number" label="No" min-width="40" />
+          <el-table-column
+            prop="url"
+            label="URL"
+            min-width="150"
+            show-overflow-tooltip
+          >
             <template #default="{ row }">
               <el-link :href="row.url" target="_blank">{{ row.url }}</el-link>
             </template>
           </el-table-column>
-          <el-table-column label="Progress" width="90">
+          <el-table-column label="Progress" min-width="80">
             <template #default="{ row }">
               <el-progress
                 v-if="row.building"
@@ -132,13 +138,24 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="result" label="Result" width="100" />
-          <el-table-column prop="timestamp" label="Build Time" width="120">
+          <el-table-column label="Result" min-width="60" align="center">
+            <template #default="{ row }">
+              <el-tooltip
+                :content="getBuildStatusText(row.result, row.building)"
+                placement="top"
+              >
+                <span style="font-size: 1em">{{
+                  getBuildStatusIcon(row.result, row.building)
+                }}</span>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column prop="timestamp" label="Build Time" min-width="120">
             <template #default="{ row }">
               {{ formatTimestamp(row.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="80">
+          <el-table-column label="操作" min-width="70">
             <template #default="{ row }">
               <el-tooltip content="刷新" placement="top">
                 <el-button
@@ -213,6 +230,15 @@ function debounce(func, delay) {
     timeout = setTimeout(() => func.apply(context, args), delay);
   };
 }
+
+function getBuildStatusIcon(result, building) {
+  if (building) return "⏳";
+  if (result === "SUCCESS") return "✅";
+  if (result === "FAILURE") return "❌";
+  if (result === "ABORTED") return "🛑";
+  return "❔";
+}
+
 // --- 响应式状态 ---
 const loading = ref(true);
 const jobLoading = ref({});
@@ -375,7 +401,9 @@ async function refreshBuild(jobName, buildNumber) {
     }
   } catch (error) {
     console.error(`刷新构建 #${buildNumber} 失败:`, error);
-    ElMessage.error(`刷新构建 #${buildNumber} 失败: ${error.message || "未知错误"}`);
+    ElMessage.error(
+      `刷新构建 #${buildNumber} 失败: ${error.message || "未知错误"}`
+    );
   } finally {
     buildLoading.value[`${jobName}-${buildNumber}`] = false;
   }
