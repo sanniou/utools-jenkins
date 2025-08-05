@@ -1,77 +1,100 @@
 <template>
-  <div v-for="(config, index) in configList" :key="config.data.url">
-    <el-card class="box-card">
-      <el-input
-        placeholder="jenkins schema"
-        class="input"
-        name="jkSchema"
-        v-model="config.data.schema"
-        v-on:input="onInput(config, index)"
-      />
-      <el-input
-        placeholder="jenkins url"
-        class="input"
-        name="jkUrl"
-        v-model="config.data.url"
-        v-on:input="onInput(config, index)"
-      />
-      <el-input
-        placeholder="jenkins username(optional)"
-        class="input"
-        name="jkUsername"
-        v-model="config.data.username"
-        v-on:input="onInput(config, index)"
-      />
-      <el-input
-        placeholder="jenkins password(optional)"
-        class="input"
-        name="jkPassword"
-        v-model="config.data.password"
-        v-on:input="onInput(config, index)"
-      />
-    </el-card>
-
-    <el-divider>-1-</el-divider>
-  </div>
-  <div>
-    <a
-      href="javascript:void(0)"
-      id="sub"
-      v-on:click="subConf"
-      style="float: right; display: block; width: 70px"
-      >减少配置</a
-    >
-    <a
-      href="javascript:void(0)"
-      id="add"
-      v-on:click="addConf"
-      style="float: right; display: block; width: 70px"
-      >增加配置</a
-    >
-    <a
-      href="javascript:void(0)"
-      id="returnBack"
-      v-on:click="returnBack"
-      style="float: right; display: block; width: 140px"
-      >返回Jenkins搜索</a
-    >
-  </div>
+  <el-container>
+    <el-header>
+      <el-row :gutter="20" align="middle">
+        <el-col :span="12">
+          <h2>Jenkins 配置</h2>
+        </el-col>
+        <el-col :span="12" style="text-align: right;">
+          <el-tooltip content="返回" placement="top">
+            <el-button circle @click="returnBack">
+              <el-icon><ArrowLeftBold /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="增加配置" placement="top">
+            <el-button type="primary" circle @click="addConf">
+              <el-icon><Plus /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="减少配置" placement="top">
+            <el-button type="danger" circle @click="subConf">
+              <el-icon><Minus /></el-icon>
+            </el-button>
+          </el-tooltip>
+        </el-col>
+      </el-row>
+    </el-header>
+    <el-main>
+      <el-form
+        v-if="configList.length > 0"
+        ref="form"
+        label-width="120px"
+        class="config-form"
+      >
+        <div v-for="(config, index) in configList" :key="config._id">
+          <el-card class="box-card">
+            <el-form-item label="Schema">
+              <el-input
+                placeholder="http or https"
+                name="jkSchema"
+                v-model="config.data.schema"
+                @input="onInput(config)"
+              ></el-input>
+            </el-form-item>
+            <el-form-item label="URL">
+              <el-input
+                placeholder="jenkins url"
+                name="jkUrl"
+                v-model="config.data.url"
+                @input="onInput(config)"
+              ></el-input>
+            </el-form-item>
+            <el-form-item label="Username">
+              <el-input
+                placeholder="jenkins username(optional)"
+                name="jkUsername"
+                v-model="config.data.username"
+                @input="onInput(config)"
+              ></el-input>
+            </el-form-item>
+            <el-form-item label="Password">
+              <el-input
+                placeholder="jenkins password(optional)"
+                name="jkPassword"
+                type="password"
+                show-password
+                v-model="config.data.password"
+                @input="onInput(config)"
+              ></el-input>
+            </el-form-item>
+          </el-card>
+          <el-divider v-if="index < configList.length - 1" />
+        </div>
+      </el-form>
+      <el-empty
+        v-else
+        description="暂无配置，请点击增加配置按钮添加"
+      ></el-empty>
+    </el-main>
+  </el-container>
 </template>
 
-<script>
+<script setup>
+import { ref } from "vue";
 import utools_dev from "../js/utools_mock";
+import { ElIcon } from "element-plus";
+import { Plus, Minus, ArrowLeftBold } from "@element-plus/icons-vue";
+
 let utools = window.utools ? window.utools : utools_dev;
+
+const configList = ref(getConfList());
+
 function getConfList() {
   let allDocs = utools.db.allDocs("jenkins");
-  let ret = [];
-  if (allDocs.length > 0) {
-    for (let i = 0; i < allDocs.length; i++) {
-      let data = allDocs[i];
-      ret.push(data);
-    }
-  } else {
-    ret.push({
-      _id: "",
+  if (allDocs.length === 0) {
+    // If no existing configs, add one with a new UUID
+    allDocs.push({
+      _id: "jenkins-" + (utools.db.getUUID ? utools.db.getUUID() : Date.now().toString()), // Generate a unique ID with prefix
       data: {
         schema: null,
         url: null,
@@ -80,52 +103,61 @@ function getConfList() {
       },
     });
   }
-  return ret;
+  return allDocs;
 }
-export default {
-  name: "Config",
-  data: () => {
-    return {
-      configList: getConfList(),
-    };
-  },
-  created() {},
-  methods: {
-    onInput: function (conf, index) {
-      let value = utools.db.get("jenkins-" + index);
-      let data = {
-        _id: "jenkins-" + index,
-        data: {
-          schema: conf.data.schema,
-          url: conf.data.url,
-          username: conf.data.username,
-          password: conf.data.password,
-        },
-        _rev: value == null ? null : value._rev,
-      };
-      data._rev || delete data._rev;
-      utools.db.put(data);
+
+function onInput(conf) {
+  let value = utools.db.get(conf._id);
+  let data = {
+    _id: conf._id,
+    data: {
+      schema: conf.data.schema,
+      url: conf.data.url,
+      username: conf.data.username,
+      password: conf.data.password,
     },
-    subConf: function () {
-      console.log(this.configList.length);
-      let lastIndex = this.configList.length - 1;
-      this.configList.splice(lastIndex, 1);
-      utools.db.remove("jenkins-" + lastIndex);
+    _rev: value == null ? null : value._rev,
+  };
+  data._rev || delete data._rev;
+  utools.db.put(data);
+}
+
+function subConf() {
+  if (configList.value.length > 0) {
+    const lastConfig = configList.value[configList.value.length - 1];
+    utools.db.remove(lastConfig._id);
+    configList.value.pop();
+  }
+}
+
+function addConf() {
+  configList.value.push({
+    _id: "jenkins-" + (utools.db.getUUID ? utools.db.getUUID() : Date.now().toString()),
+    data: {
+      schema: null,
+      url: null,
+      username: null,
+      password: null,
     },
-    addConf: function () {
-      this.configList.push({
-        _id: "",
-        data: {
-          schema: null,
-          url: null,
-          username: null,
-          password: null,
-        },
-      });
-    },
-    returnBack: function () {
-      utools.redirect("jenkins", "");
-    },
-  },
-};
+  });
+}
+
+function returnBack() {
+  utools.redirect("jenkins", "");
+}
 </script>
+
+<style scoped>
+.el-header {
+  padding-top: 20px;
+}
+.box-card {
+  margin-bottom: 20px;
+}
+.input-item {
+  margin-bottom: 10px;
+}
+.input-item:last-child {
+  margin-bottom: 0;
+}
+</style>

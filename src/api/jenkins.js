@@ -7,7 +7,8 @@
  * @param {JenkinsConfig} config
  */
 export function createJenkinsApi(config) {
-  const { baseUrl, username, token, crumb } = config;
+  const baseUrl = `${config.schema}://${config.url}`;
+  const { username, password, crumb } = config;
 
   /**
    * 基础 fetch 函数，处理认证和通用错误
@@ -19,7 +20,7 @@ export function createJenkinsApi(config) {
     const headers = new Headers(options.headers || {});
 
     // 添加基础认证
-    headers.set('Authorization', 'Basic ' + btoa(`${username}:${token}`));
+    headers.set('Authorization', 'Basic ' + btoa(`${username}:${password}`));
 
     // 如果有 Crumb，则添加
     if (crumb) {
@@ -48,7 +49,7 @@ export function createJenkinsApi(config) {
     async getCrumb() {
       const url = `${baseUrl}/crumbIssuer/api/json`;
       const headers = {
-        'Authorization': 'Basic ' + btoa(`${username}:${token}`),
+        'Authorization': 'Basic ' + btoa(`${username}:${password}`),
       };
       const response = await fetch(url, { headers });
       if (!response.ok) {
@@ -63,8 +64,11 @@ export function createJenkinsApi(config) {
     /**
      * 获取所有 Jobs
      */
-    getJobs() {
-      return jenkinsFetch('/api/json?tree=jobs[name,url,color]');
+    /**
+     * 获取所有 Jobs，并包含每个 Job 的最新构建信息
+     */
+    getJobsWithLatestBuild() {
+      return jenkinsFetch('/api/json?tree=jobs[name,url,color,latestBuild[number,url,result,building,duration,timestamp,changeSet[kind,items[msg,author[fullName]]]]]');
     },
 
     /**
@@ -72,7 +76,7 @@ export function createJenkinsApi(config) {
      * @param {string} jobName
      */
     getJob(jobName) {
-      return jenkinsFetch(`/job/${jobName}/api/json?tree=builds[number,url,result,building,duration,timestamp,description,changeSet[items[msg,author[fullName]]]],actions[parameterDefinitions[*]]`);
+      return jenkinsFetch(`/job/${jobName}/api/json?tree=builds[number,url,result,building,duration,timestamp,description,changeSet[kind,items[msg,author[fullName]]]],actions[parameterDefinitions[*]]`);
     },
 
     /**
@@ -98,7 +102,7 @@ export function createJenkinsApi(config) {
      * @param {string} jobName
      */
     buildJob(jobName) {
-      return jenkinsFetch(`/job/${jobName}/build`, { method: 'POST' });
+      return jenkinsFetch(`/job/${jobName}/build`, { method: 'POST', body: new FormData() });
     },
 
     /**
@@ -111,12 +115,10 @@ export function createJenkinsApi(config) {
       for (const key in params) {
         formData.append(key, params[key]);
       }
-      // Jenkins API 要求带参数构建时，需要一个名为 "json" 的参数
-      formData.append('json', JSON.stringify(params));
 
       return jenkinsFetch(`/job/${jobName}/buildWithParameters`, {
         method: 'POST',
-        body: new URLSearchParams(formData) // 使用 URLSearchParams 来编码表单数据
+        body: formData // 直接使用 FormData 来编码表单数据
       });
     }
   };

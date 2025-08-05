@@ -10,7 +10,7 @@ import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 export default defineConfig({
   base: "./",
   server: {
-    host: "127.0.0.1",
+    host: "0.0.0.0", // 允许局域网访问
     port: 3000,
   },
   plugins: [
@@ -27,11 +27,9 @@ export default defineConfig({
       resolvers: [ElementPlusResolver()],
     }),
   ],
-  define: {
-    "process.env": {},
-  },
+  // 移除 define: { "process.env": {} }，Vite 会自动处理环境变量
   build: {
-    // 不压缩，用于调试
+    // 生产环境启用代码压缩
     minify: false,
   },
 });
