@@ -8,10 +8,10 @@
               v-model="searchQuery"
               placeholder="搜索 Job"
               clearable
-              @input="filterJobs"
+              @input="debouncedFilterJobs"
             />
           </el-col>
-          <el-col :span="8" style="text-align: right;">
+          <el-col :span="8" style="text-align: right">
             <el-tooltip content="刷新列表" placement="top">
               <el-button circle @click="refreshAllJobs">
                 <el-icon><Refresh /></el-icon>
@@ -39,8 +39,12 @@
             label="Name"
             sortable
             show-overflow-tooltip
-          />
-          <el-table-column label="最近一次 Job">
+          >
+            <template #default="{ row }">
+              <span v-html="highlightMatchedText(row.name, searchQuery)"></span>
+            </template>
+          </el-table-column>
+          <el-table-column label="最近一次 Job" width="100">
             <template #default="{ row }">
               <el-tag
                 v-if="row.latestBuild"
@@ -51,7 +55,7 @@
                   )
                 "
               >
-                {{ 
+                {{
                   getBuildStatusText(
                     row.latestBuild.result,
                     row.latestBuild.building
@@ -70,12 +74,13 @@
             label="Build Time"
             sortable
             sort-by="latestBuild.timestamp"
+            width="140"
           >
             <template #default="{ row }">
               {{ formatTimestamp(row.latestBuild?.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作">
+          <el-table-column label="操作" width="120">
             <template #default="{ row }">
               <el-tooltip content="刷新" placement="top">
                 <el-button
@@ -110,19 +115,14 @@
         class="build-table-container"
         style="max-height: 60vh; overflow-y: auto"
       >
-        <el-table
-          :data="displayedBuilds"
-          style="width: 100%"
-          stripe
-          border
-        >
-          <el-table-column prop="number" label="No" />
+        <el-table :data="displayedBuilds" style="width: 100%" stripe border>
+          <el-table-column prop="number" label="No" width="60" />
           <el-table-column prop="url" label="URL" show-overflow-tooltip>
             <template #default="{ row }">
               <el-link :href="row.url" target="_blank">{{ row.url }}</el-link>
             </template>
           </el-table-column>
-          <el-table-column label="Progress">
+          <el-table-column label="Progress" width="90">
             <template #default="{ row }">
               <el-progress
                 v-if="row.building"
@@ -132,18 +132,19 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="result" label="Result" />
-          <el-table-column prop="timestamp" label="Build Time">
+          <el-table-column prop="result" label="Result" width="100" />
+          <el-table-column prop="timestamp" label="Build Time" width="120">
             <template #default="{ row }">
               {{ formatTimestamp(row.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作">
+          <el-table-column label="操作" width="80">
             <template #default="{ row }">
               <el-tooltip content="刷新" placement="top">
                 <el-button
                   circle
                   @click="refreshBuild(selectedJob.name, row.number)"
+                  :loading="buildLoading[`${selectedJob.name}-${row.number}`]"
                 >
                   <el-icon><Refresh /></el-icon>
                 </el-button>
@@ -187,9 +188,35 @@ function formatTimestamp(ts) {
   return moment(ts).fromNow();
 }
 
+function highlightMatchedText(text, query) {
+  if (!query) return text;
+  const keywords = query
+    .toLowerCase()
+    .split(" ")
+    .filter((k) => k);
+  let highlightedText = text;
+  keywords.forEach((keyword) => {
+    const regex = new RegExp(`(${keyword})`, "gi");
+    highlightedText = highlightedText.replace(
+      regex,
+      '<span class="highlight">$1</span>'
+    );
+  });
+  return highlightedText;
+}
+
+function debounce(func, delay) {
+  let timeout;
+  return function (...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), delay);
+  };
+}
 // --- 响应式状态 ---
 const loading = ref(true);
 const jobLoading = ref({});
+const buildLoading = ref({});
 const currentJenkinsConfig = ref(null);
 const allJobs = ref([]);
 const searchQuery = ref("");
@@ -202,9 +229,15 @@ const filteredJobs = computed(() => {
   if (!searchQuery.value) {
     return allJobs.value;
   }
-  return allJobs.value.filter((job) =>
-    job.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-  );
+  // Multi-keyword search (AND logic)
+  const keywords = searchQuery.value
+    .toLowerCase()
+    .split(" ")
+    .filter((k) => k);
+  return allJobs.value.filter((job) => {
+    const jobName = job.name.toLowerCase();
+    return keywords.every((keyword) => jobName.includes(keyword));
+  });
 });
 
 const displayedBuilds = computed(() => {
@@ -328,7 +361,8 @@ async function buildJob() {
 }
 
 async function refreshBuild(jobName, buildNumber) {
-  await withLoading(async () => {
+  buildLoading.value[`${jobName}-${buildNumber}`] = true;
+  try {
     const buildData = await jenkinsApi.getBuild(jobName, buildNumber);
     const buildIndex = selectedJobBuilds.value.findIndex(
       (build) => build.number === buildNumber
@@ -339,7 +373,12 @@ async function refreshBuild(jobName, buildNumber) {
         ...buildData,
       };
     }
-  }, `刷新构建 #${buildNumber} 失败`);
+  } catch (error) {
+    console.error(`刷新构建 #${buildNumber} 失败:`, error);
+    ElMessage.error(`刷新构建 #${buildNumber} 失败: ${error.message || "未知错误"}`);
+  } finally {
+    buildLoading.value[`${jobName}-${buildNumber}`] = false;
+  }
 }
 
 async function withLoading(fn, errorMessage = "操作失败") {
@@ -353,6 +392,12 @@ async function withLoading(fn, errorMessage = "操作失败") {
     loading.value = false;
   }
 }
+
+// Debounced filter function
+const debouncedFilterJobs = debounce(() => {
+  // The actual filtering logic is now in the computed property `filteredJobs`
+  // This function just triggers the re-evaluation of `filteredJobs`
+}, 300);
 </script>
 
 <style scoped>
@@ -376,6 +421,11 @@ async function withLoading(fn, errorMessage = "操作失败") {
 .build-table-footer {
   text-align: center; /* 居中 */
   padding-top: 10px; /* 与表格的间距 */
+}
+
+.highlight {
+  background-color: yellow;
+  font-weight: bold;
 }
 </style>
 
