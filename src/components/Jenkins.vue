@@ -181,7 +181,48 @@
       </div>
       <template #footer>
         <span class="dialog-footer">
-          <el-button type="primary" @click="buildJob">立即构建</el-button>
+          <el-button type="primary" @click="handleBuildClick">立即构建</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 新增的参数输入对话框 -->
+    <el-dialog
+      v-model="buildParamsVisible"
+      :title="`构建 Job - ${selectedJob?.name}`"
+      width="50%"
+      :destroy-on-close="true"
+    >
+      <el-form :model="buildParameters" label-width="120px">
+        <el-form-item
+          v-for="param in jobParameterDefinitions"
+          :key="param.name"
+          :label="param.name"
+        >
+          <template v-if="param.type === 'ChoiceParameterDefinition'">
+            <el-select v-model="buildParameters[param.name]" placeholder="请选择">
+              <el-option
+                v-for="choice in param.choices"
+                :key="choice"
+                :label="choice"
+                :value="choice"
+              />
+            </el-select>
+          </template>
+          <template v-else>
+            <!-- 不支持的参数类型，显示为只读文本或提示 -->
+            <el-input
+              v-model="buildParameters[param.name]"
+              :placeholder="`不支持的参数类型: ${param.type}`"
+              disabled
+            />
+          </template>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="buildParamsVisible = false">取消</el-button>
+          <el-button type="primary" @click="confirmBuildWithParams">确定构建</el-button>
         </span>
       </template>
     </el-dialog>
@@ -250,6 +291,10 @@ const buildMenuVisible = ref(false);
 const selectedJob = ref(null);
 const selectedJobBuilds = ref([]);
 const showAllBuilds = ref(false);
+
+const buildParamsVisible = ref(false); // 控制参数输入对话框的显示
+const jobParameterDefinitions = ref([]); // 存储 Job 的参数定义
+const buildParameters = ref({}); // 存储用户输入的参数值
 
 const filteredJobs = computed(() => {
   if (!searchQuery.value) {
@@ -361,29 +406,62 @@ async function openBuildMenu(job) {
   await withLoading(async () => {
     const jobData = await jenkinsApi.getJob(job.name);
     selectedJobBuilds.value = jobData.builds || [];
-  }, `获取 Job ${job.name} 的构建历史失败`);
+
+    // 从 property 中获取参数定义
+    const paramsProperty = jobData.property.find(
+      (p) => p._class === "hudson.model.ParametersDefinitionProperty"
+    );
+    jobParameterDefinitions.value = paramsProperty
+      ? paramsProperty.parameterDefinitions
+      : [];
+
+    // 初始化参数值
+    buildParameters.value = {};
+    jobParameterDefinitions.value.forEach((param) => {
+      if (param.defaultParameterValue) {
+        buildParameters.value[param.name] = param.defaultParameterValue.value;
+      } else if (param.type === 'ChoiceParameterDefinition' && param.choices && param.choices.length > 0) {
+        buildParameters.value[param.name] = param.choices[0]; // 默认选择第一个
+      } else {
+        buildParameters.value[param.name] = ""; // 默认空字符串
+      }
+    });
+  }, `获取 Job ${job.name} 的构建历史和参数失败`);
 }
 
-async function buildJob() {
+// 新增一个处理“立即构建”按钮点击的方法
+function handleBuildClick() {
+  if (jobParameterDefinitions.value.length > 0) {
+    buildParamsVisible.value = true; // 显示参数输入对话框
+  } else {
+    buildJob(); // 直接构建
+  }
+}
+
+// 修改 buildJob 方法，使其接收参数
+async function buildJob(params = {}) {
   if (!selectedJob.value || !jenkinsApi) return;
 
-  const jobData = await jenkinsApi.getJob(selectedJob.value.name);
-  const parameterDefinitionsAction = jobData.actions.find(
-    (a) => a.parameterDefinitions
-  );
-  const jobParameters = parameterDefinitionsAction
-    ? parameterDefinitionsAction.parameterDefinitions
-    : [];
+  await withLoading(async () => {
+    await jenkinsApi.buildJob(selectedJob.value.name, params);
+    ElMessage.success(`构建已触发。`);
+    await refreshJob(selectedJob.value.name);
+  }, `构建 Job ${selectedJob.value.name} 失败`);
+}
 
-  if (jobParameters.length > 0) {
-    ElMessage.info("此 Job 包含参数，请在 Jenkins 页面手动构建。");
-  } else {
-    await withLoading(async () => {
-      await jenkinsApi.buildJob(selectedJob.value.name);
-      ElMessage.success(`构建已触发。`);
-      await refreshJob(selectedJob.value.name);
-    }, `构建 Job ${selectedJob.value.name} 失败`);
-  }
+// 新增一个确认带参数构建的方法
+async function confirmBuildWithParams() {
+  buildParamsVisible.value = false; // 关闭参数输入对话框
+
+  const paramsToBuild = {};
+  jobParameterDefinitions.value.forEach(paramDef => {
+    // 只有非 WHideParameterDefinition 类型的参数才会被传递
+    if (paramDef.type !== 'WHideParameterDefinition') {
+      paramsToBuild[paramDef.name] = buildParameters.value[paramDef.name];
+    }
+  });
+
+  await buildJob(paramsToBuild); // 调用 buildJob 并传入过滤后的参数
 }
 
 async function refreshBuild(jobName, buildNumber) {
@@ -426,7 +504,7 @@ const debouncedFilterJobs = debounce(() => {
   // The actual filtering logic is now in the computed property `filteredJobs`
   // This function just triggers the re-evaluation of `filteredJobs`
 }, 300);
-</script>
+</script>"""
 
 <style scoped>
 .el-header {
