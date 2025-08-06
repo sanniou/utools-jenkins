@@ -29,6 +29,10 @@
             </el-input>
           </el-col>
           <el-col :span="8" style="text-align: right">
+            <!-- 4. 增加数据新鲜度指示 -->
+            <span class="update-time-display">{{
+              lastUpdateTimeFormatted
+            }}</span>
             <el-tooltip content="刷新列表" placement="top">
               <el-button circle @click="refreshAllJobs"
                 ><el-icon><Refresh /></el-icon
@@ -51,6 +55,7 @@
           stripe
           border
         >
+          <!-- 2. 增加行内状态指示器 -->
           <el-table-column
             prop="name"
             label="Name"
@@ -59,11 +64,17 @@
             show-overflow-tooltip
           >
             <template #default="{ row }">
-              <span
-                class="link-style"
-                @click="openJenkinsJobUrl(row.name)"
-                v-html="highlightMatchedText(row.name, searchQuery)"
-              ></span>
+              <div class="job-name-container">
+                <span
+                  class="status-dot"
+                  :class="getJobStatusClass(row.color)"
+                ></span>
+                <span
+                  class="link-style"
+                  @click="openJenkinsJobUrl(row.name)"
+                  v-html="highlightMatchedText(row.name, searchQuery)"
+                ></span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="最近一次 Job" min-width="60">
@@ -89,16 +100,21 @@
               <span v-else>无构建历史</span>
             </template>
           </el-table-column>
+          <!-- 1. 优化 “Change Message” 列的视觉一致性 -->
           <el-table-column label="Change Message" min-width="220">
             <template #default="{ row }">
               <el-tooltip
                 :raw-content="true"
                 :content="getFullChangeSets(row.lastBuild?.changeSets)"
                 placement="top"
+                :disabled="
+                  !row.lastBuild?.changeSets ||
+                  row.lastBuild.changeSets.length === 0
+                "
               >
-                <span
-                  v-html="getTruncatedChangeSets(row.lastBuild?.changeSets)"
-                ></span>
+                <span class="single-line-ellipsis">
+                  {{ getFirstLineChangeSet(row.lastBuild?.changeSets) }}
+                </span>
               </el-tooltip>
             </template>
           </el-table-column>
@@ -112,7 +128,13 @@
               {{ formatTimestamp(row.lastBuild?.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="Action" min-width="90">
+          <!-- 3. 引入 “悬浮操作” -->
+          <el-table-column
+            label="Action"
+            min-width="90"
+            align="center"
+            class-name="action-column"
+          >
             <template #default="{ row }">
               <el-button
                 circle
@@ -131,7 +153,6 @@
       </el-main>
     </el-container>
 
-    <!-- 1. 将 el-dialog 替换为 el-drawer，以抽屉形式展示，交互更流畅 -->
     <el-drawer
       v-model="buildMenuVisible"
       direction="rtl"
@@ -141,7 +162,6 @@
       @open="startPolling"
       @close="stopPolling"
     >
-      <!-- 2. 使用 #header 插槽自定义头部，增强交互性和视觉效果 -->
       <template #header>
         <h4 class="drawer-title">
           构建菜单 -
@@ -150,7 +170,6 @@
           >
         </h4>
       </template>
-      <!-- 1. 使用 el-scrollbar 替代 div，以获得统一样式的滚动条和更优的布局 -->
       <el-scrollbar max-height="60vh" class="build-table-container">
         <el-table :data="displayedBuilds" style="width: 100%" stripe border>
           <el-table-column prop="number" label="No" min-width="40">
@@ -235,7 +254,6 @@
       </template>
     </el-drawer>
 
-    <!-- 新增的参数输入对话框 -->
     <el-dialog
       v-model="buildParamsVisible"
       :title="`构建 Job - ${selectedJob?.name}`"
@@ -263,7 +281,6 @@
             </el-select>
           </template>
           <template v-else>
-            <!-- 不支持的参数类型，显示为只读文本或提示 -->
             <el-input
               v-model="buildParameters[param.name]"
               :placeholder="`不支持的参数类型: ${param.type}`"
@@ -315,7 +332,6 @@ function formatTimestamp(ts) {
   } else if (days < 30) {
     return `${days}d ago`;
   } else {
-    // 超过30天，显示完整的年-月-日
     return moment(ts).format("YYYY-MM-DD");
   }
 }
@@ -377,18 +393,35 @@ function getFullChangeSets(changeSets) {
   return messages.join("<br />");
 }
 
-function getTruncatedChangeSets(changeSets) {
-  const fullMessagesHtml = getFullChangeSets(changeSets);
-  // Convert HTML <br /> to \n for line splitting
-  const messagesArray = fullMessagesHtml.split("<br />");
-
-  if (messagesArray.length <= 3) {
-    return fullMessagesHtml; // No truncation needed
+function getFirstLineChangeSet(changeSets) {
+  if (!changeSets || changeSets.length === 0) {
+    return "无变更信息";
   }
 
-  const truncatedMessages = messagesArray.slice(0, 3);
-  truncatedMessages[2] += "..."; // Add ellipsis to the third line
-  return truncatedMessages.join("<br />");
+  let firstMsg = "无变更信息";
+  // 查找第一个可用的提交信息
+  for (const set of changeSets) {
+    if (set.items && set.items.length > 0) {
+      const firstItem = set.items.find((item) => item.msg);
+      if (firstItem) {
+        firstMsg = firstItem.msg;
+        break; // 找到第一个消息，退出循环
+      }
+    }
+  }
+  // 仅返回消息的第一行
+  return firstMsg.split("\n")[0];
+}
+
+function getJobStatusClass(color) {
+  if (!color) return "status-grey";
+  if (color.includes("anime")) return "status-yellow-anime";
+  if (color.includes("blue")) return "status-blue";
+  if (color.includes("red")) return "status-red";
+  if (color.includes("aborted")) return "status-grey";
+  if (color.includes("disabled")) return "status-grey";
+  if (color.includes("notbuilt")) return "status-grey";
+  return "status-grey";
 }
 
 function openJenkinsJobUrl(jobName) {
@@ -424,7 +457,7 @@ function openJenkinsBuildUrl(jobName, buildNumber) {
 const loading = ref(true);
 const jobLoading = ref({});
 const buildLoading = ref({});
-const allConfigs = ref([]); // 新增：存储所有配置
+const allConfigs = ref([]);
 const currentJenkinsConfig = ref(null);
 const allJobs = ref([]);
 const searchQuery = ref("");
@@ -432,20 +465,20 @@ const buildMenuVisible = ref(false);
 const selectedJob = ref(null);
 const selectedJobBuilds = ref([]);
 const showAllBuilds = ref(false);
+const lastUpdateTime = ref(null);
 
-const selectedConfigId = ref(null); // 新增：当前选中的配置ID
-const buildParamsVisible = ref(false); // 控制参数输入对话框的显示
-const jobParameterDefinitions = ref([]); // 存储 Job 的参数定义
-const buildParameters = ref({}); // 存储用户输入的参数值
+const selectedConfigId = ref(null);
+const buildParamsVisible = ref(false);
+const jobParameterDefinitions = ref([]);
+const buildParameters = ref({});
 
-const activePollingBuilds = ref(new Set()); // Stores build numbers that are currently being polled
-let pollingInterval = null; // To store the interval ID
+const activePollingBuilds = ref(new Set());
+let pollingInterval = null;
 
 const filteredJobs = computed(() => {
   if (!searchQuery.value) {
     return allJobs.value;
   }
-  // Multi-keyword search (AND logic)
   const keywords = searchQuery.value
     .toLowerCase()
     .split(" ")
@@ -463,11 +496,15 @@ const displayedBuilds = computed(() => {
   return selectedJobBuilds.value.slice(0, 10);
 });
 
+const lastUpdateTimeFormatted = computed(() => {
+  if (!lastUpdateTime.value) return "";
+  return `最后更新于: ${moment(lastUpdateTime.value).format("HH:mm:ss")}`;
+});
+
 let jenkinsApi = null;
 
 // --- 轮询相关函数 ---
 function startPolling() {
-  // 确保只有一个轮询在运行
   if (pollingInterval) {
     clearInterval(pollingInterval);
   }
@@ -480,7 +517,7 @@ function startPolling() {
       const [jobName, buildNumber] = buildKey.split("-");
       await refreshBuild(jobName, parseInt(buildNumber));
     }
-  }, 5000); // 每 5 秒轮询一次
+  }, 5000);
 }
 
 function stopPolling() {
@@ -554,6 +591,7 @@ async function refreshAllJobs() {
     allJobs.value = jobsData.jobs.sort(
       (a, b) => (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
     );
+    lastUpdateTime.value = new Date(); // 1. 在数据成功获取后，更新时间戳
   }, "刷新 Job 列表失败");
 }
 
@@ -753,10 +791,9 @@ async function withLoading(fn, errorMessage = "操作失败") {
 // Debounced filter function
 const debouncedFilterJobs = debounce(() => {
   // The actual filtering logic is now in the computed property `filteredJobs`
-  // This function just triggers the re-evaluation of `filteredJobs`
+  // 2. 移除此处的更新逻辑，因为它只与过滤相关，不代表数据刷新
 }, 300);
 </script>
-"""
 
 <style scoped>
 .el-header {
@@ -807,6 +844,63 @@ const debouncedFilterJobs = debounce(() => {
 
 .input-with-select :deep(.el-input-group__prepend) {
   background-color: var(--el-fill-color-blank);
+}
+
+/* 2. 增加行内状态指示器 */
+.job-name-container {
+  display: flex;
+  align-items: center;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  display: inline-block;
+}
+
+.status-blue {
+  background-color: #42b983; /* 或您喜欢的成功颜色 */
+}
+
+.status-red {
+  background-color: #cc0033; /* 或您喜欢的失败颜色 */
+}
+
+.status-yellow-anime {
+  background-color: #ffba00; /* 或您喜欢的进行中颜色 */
+  animation: pulse 2s infinite;
+}
+
+.status-grey {
+  background-color: #999; /* 或您喜欢的灰色 */
+}
+
+/* 1. 优化 “Change Message” 列的视觉一致性 */
+.single-line-ellipsis {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+/* 3. 引入 “悬浮操作” */
+.action-column .el-button {
+  opacity: 0; /* 初始状态下隐藏按钮 */
+  transition: opacity 0.3s ease; /* 添加一个过渡效果 */
+}
+
+.el-table__row:hover .action-column .el-button {
+  opacity: 1; /* 鼠标悬浮时显示按钮 */
+}
+
+/* 4. 增加数据新鲜度指示 */
+.update-time-display {
+  margin-right: 10px;
+  font-size: 0.8em;
+  color: #999;
 }
 </style>
 
