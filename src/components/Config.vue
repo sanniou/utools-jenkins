@@ -1,38 +1,35 @@
 <template>
-  <el-container>
-    <el-header>
-      <el-row :gutter="20" align="middle">
-        <el-col :span="12">
-          <h2>Jenkins 配置</h2>
-        </el-col>
-        <el-col :span="12" style="text-align: right;">
-          <el-tooltip content="返回" placement="top">
-            <el-button circle @click="returnBack">
-              <el-icon><ArrowLeftBold /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="增加配置" placement="top">
-            <el-button type="primary" circle @click="addConf">
-              <el-icon><Plus /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="减少配置" placement="top">
-            <el-button type="danger" circle @click="subConf">
-              <el-icon><Minus /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-col>
-      </el-row>
-    </el-header>
-    <el-main>
+  <div class="config-page-container">
+    <!-- 1. 将“回到 Jenkins”作为按钮的明确文本，并放置在左上角，符合返回操作的习惯 -->
+    <el-button class="back-button" @click="returnBack">
+      <el-icon><ArrowLeftBold /></el-icon>
+      回到 Jenkins
+    </el-button>
+
+    <el-main class="config-main">
+      <!-- 2. 彻底移除页面标题，让布局更专注于内容 -->
       <el-form
         v-if="configList.length > 0"
         ref="form"
-        label-width="120px"
+        label-width="auto"
         class="config-form"
       >
         <div v-for="(config, index) in configList" :key="config._id">
           <el-card class="box-card">
+            <template #header>
+              <div class="card-header">
+                <span>实例 {{ index + 1 }}</span>
+                <el-button
+                  class="button"
+                  type="danger"
+                  text
+                  @click="deleteConfig(config, index)"
+                >
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-button>
+              </div>
+            </template>
             <el-form-item label="Schema">
               <el-input
                 placeholder="http or https"
@@ -68,7 +65,6 @@
               ></el-input>
             </el-form-item>
           </el-card>
-          <el-divider v-if="index < configList.length - 1" />
         </div>
       </el-form>
       <el-empty
@@ -76,14 +72,19 @@
         description="暂无配置，请点击增加配置按钮添加"
       ></el-empty>
     </el-main>
-  </el-container>
+
+    <!-- 2. 移除浮动按钮上不必要的 Tooltip，让界面更简洁 -->
+    <el-button class="add-fab" type="primary" circle @click="addConf">
+      <el-icon><Plus /></el-icon>
+    </el-button>
+  </div>
 </template>
 
 <script setup>
 import { ref } from "vue";
 import utools_dev from "../js/utools_mock";
-import { ElIcon } from "element-plus";
-import { Plus, Minus, ArrowLeftBold } from "@element-plus/icons-vue";
+import { ElIcon, ElMessageBox, ElMessage } from "element-plus";
+import { Plus, Delete, ArrowLeftBold } from "@element-plus/icons-vue";
 
 let utools = window.utools ? window.utools : utools_dev;
 
@@ -135,11 +136,38 @@ function saveConfig(conf) {
 
 const debouncedSaveConfig = debounce(saveConfig, 500);
 
-function subConf() {
-  if (configList.value.length > 0) {
-    const lastConfig = configList.value[configList.value.length - 1];
-    utools.db.remove(lastConfig._id);
-    configList.value.pop();
+async function deleteConfig(conf, index) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除实例 ${index + 1} (${conf.data.url || "空配置"}) 吗？`,
+      "警告",
+      {
+        confirmButtonText: "确定删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    );
+    // 用户确认删除
+    utools.db.remove(conf._id);
+    configList.value.splice(index, 1);
+    ElMessage({
+      type: "success",
+      message: "删除成功",
+    });
+  } catch (error) {
+    // 用户取消或发生错误
+    if (error !== "cancel") {
+      console.error("删除配置失败:", error);
+      ElMessage({
+        type: "error",
+        message: "删除失败",
+      });
+    } else {
+      ElMessage({
+        type: "info",
+        message: "已取消删除",
+      });
+    }
   }
 }
 
@@ -161,16 +189,51 @@ function returnBack() {
 </script>
 
 <style scoped>
-.el-header {
-  padding-top: 20px;
+.config-page-container {
+  position: relative;
+  height: 100vh;
+  background-color: #f7f8fa; /* 使用柔和的背景色，让卡片更突出 */
+  overflow-y: auto; /* 允许内容滚动 */
+}
+
+.config-main {
+  /* 3. 调整顶部内边距，为返回按钮留出空间，并使内容区与顶部有合适的间距 */
+  padding: 60px 20px 100px 20px;
+}
+
+.back-button {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+}
+
+.add-fab {
+  position: fixed; /* 使用 fixed 定位，使其在滚动时保持位置不变 */
+  bottom: 24px;
+  right: 24px;
+  z-index: 10;
+  width: 56px;
+  height: 56px;
+  font-size: 24px;
+  box-shadow: var(--el-box-shadow);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .box-card {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  border-radius: 12px; /* 3. 增加圆角，使卡片更柔和 */
+  border: none; /* 移除边框，完全依赖阴影 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 3. 使用更柔和、自然的阴影 */
+  transition: all 0.3s ease;
 }
-.input-item {
-  margin-bottom: 10px;
-}
-.input-item:last-child {
-  margin-bottom: 0;
+
+.box-card:hover {
+  transform: translateY(-4px); /* 悬浮时轻微上移 */
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); /* 悬浮时阴影更明显 */
 }
 </style>
