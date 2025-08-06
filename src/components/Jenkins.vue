@@ -72,7 +72,7 @@
               <span v-else>无构建历史</span>
             </template>
           </el-table-column>
-          <el-table-column label="Change Message">
+          <el-table-column label="Change Message"  min-width="220">
             <template #default="{ row }">
               <el-tooltip
                 :raw-content="true"
@@ -86,16 +86,16 @@
             </template>
           </el-table-column>
           <el-table-column
-            label="Build Time"
+            label="Time"
             sortable
             sort-by="lastBuild.timestamp"
-            min-width="98"
+            min-width="84"
           >
             <template #default="{ row }">
               {{ formatTimestamp(row.lastBuild?.timestamp) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" min-width="70">
+          <el-table-column label="Action" min-width="90">
             <template #default="{ row }">
               <el-tooltip content="刷新" placement="top">
                 <el-button
@@ -214,6 +214,7 @@
       v-model="buildParamsVisible"
       :title="`构建 Job - ${selectedJob?.name}`"
       width="40%"
+      :lock-scroll="false"
       :destroy-on-close="true"
     >
       <el-form :model="buildParameters" label-width="auto">
@@ -271,7 +272,26 @@ let utools = window.utools ? window.utools : utools_dev;
 // --- 辅助函数 ---
 function formatTimestamp(ts) {
   if (!ts) return "-";
-  return moment(ts).fromNow();
+  const now = moment();
+  const target = moment(ts);
+
+  const seconds = now.diff(target, 'seconds');
+  const minutes = now.diff(target, 'minutes');
+  const hours = now.diff(target, 'hours');
+  const days = now.diff(target, 'days');
+
+  if (seconds < 60) {
+    return "刚刚";
+  } else if (minutes < 60) {
+    return `${minutes}m ago`;
+  } else if (hours < 24) {
+    return `${hours}h ago`;
+  } else if (days < 30) {
+    return `${days}d ago`;
+  } else {
+    // 超过30天，显示完整的年-月-日
+    return moment(ts).format('YYYY-MM-DD');
+  }
 }
 
 function highlightMatchedText(text, query) {
