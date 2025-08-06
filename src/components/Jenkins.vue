@@ -42,7 +42,11 @@
             show-overflow-tooltip
           >
             <template #default="{ row }">
-              <span v-html="highlightMatchedText(row.name, searchQuery)"></span>
+              <span
+                class="link-style"
+                @click="openJenkinsJobUrl(row.name)"
+                v-html="highlightMatchedText(row.name, searchQuery)"
+              ></span>
             </template>
           </el-table-column>
           <el-table-column label="最近一次 Job" min-width="60">
@@ -55,6 +59,8 @@
                     row.lastBuild.building
                   )
                 "
+                class="link-style"
+                @click="openJenkinsBuildUrl(row.name, row.lastBuild.number)"
               >
                 {{
                   getBuildStatusText(
@@ -66,9 +72,17 @@
               <span v-else>无构建历史</span>
             </template>
           </el-table-column>
-          <el-table-column label="Change Message" show-overflow-tooltip>
+          <el-table-column label="Change Message">
             <template #default="{ row }">
-              {{ row.lastBuild?.changeSet?.items[0]?.msg || "-" }}
+              <el-tooltip
+                :raw-content="true"
+                :content="getFullChangeSets(row.lastBuild?.changeSets)"
+                placement="top"
+              >
+                <span
+                  v-html="getTruncatedChangeSets(row.lastBuild?.changeSets)"
+                ></span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column
@@ -117,7 +131,15 @@
         style="max-height: 60vh; overflow-y: auto"
       >
         <el-table :data="displayedBuilds" style="width: 100%" stripe border>
-          <el-table-column prop="number" label="No" min-width="40" />
+          <el-table-column prop="number" label="No" min-width="40">
+            <template #default="{ row }">
+              <span
+                class="link-style"
+                @click="openJenkinsBuildUrl(selectedJob.name, row.number)"
+                >{{ row.number }}</span
+              >
+            </template>
+          </el-table-column>
           <el-table-column
             prop="url"
             label="URL"
@@ -181,7 +203,9 @@
       </div>
       <template #footer>
         <span class="dialog-footer">
-          <el-button type="primary" @click="handleBuildClick">立即构建</el-button>
+          <el-button type="primary" @click="handleBuildClick"
+            >立即构建</el-button
+          >
         </span>
       </template>
     </el-dialog>
@@ -190,17 +214,20 @@
     <el-dialog
       v-model="buildParamsVisible"
       :title="`构建 Job - ${selectedJob?.name}`"
-      width="50%"
+      width="40%"
       :destroy-on-close="true"
     >
-      <el-form :model="buildParameters" label-width="120px">
+      <el-form :model="buildParameters" label-width="auto">
         <el-form-item
           v-for="param in jobParameterDefinitions"
           :key="param.name"
           :label="param.name"
         >
           <template v-if="param.type === 'ChoiceParameterDefinition'">
-            <el-select v-model="buildParameters[param.name]" placeholder="请选择">
+            <el-select
+              v-model="buildParameters[param.name]"
+              placeholder="请选择"
+            >
               <el-option
                 v-for="choice in param.choices"
                 :key="choice"
@@ -222,7 +249,9 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="buildParamsVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmBuildWithParams">确定构建</el-button>
+          <el-button type="primary" @click="confirmBuildWithParams"
+            >确定构建</el-button
+          >
         </span>
       </template>
     </el-dialog>
@@ -278,6 +307,72 @@ function getBuildStatusIcon(result, building) {
   if (result === "FAILURE") return "❌";
   if (result === "ABORTED") return "🛑";
   return "❔";
+}
+
+function getFullChangeSets(changeSets) {
+  if (!changeSets || changeSets.length === 0) {
+    return "无变更信息";
+  }
+
+  let messages = [];
+  changeSets.forEach((changeSet) => {
+    if (changeSet.items && changeSet.items.length > 0) {
+      changeSet.items.forEach((item) => {
+        const author = item.authorEmail ? `(${item.authorEmail})` : "";
+        const msg = item.msg ? item.msg : "无提交信息";
+        messages.push(`${author} ${msg}`);
+      });
+    }
+  });
+
+  if (messages.length === 0) {
+    return "无变更信息";
+  }
+
+  return messages.join("<br />");
+}
+
+function getTruncatedChangeSets(changeSets) {
+  const fullMessagesHtml = getFullChangeSets(changeSets);
+  // Convert HTML <br /> to \n for line splitting
+  const messagesArray = fullMessagesHtml.split("<br />");
+
+  if (messagesArray.length <= 3) {
+    return fullMessagesHtml; // No truncation needed
+  }
+
+  const truncatedMessages = messagesArray.slice(0, 3);
+  truncatedMessages[2] += "..."; // Add ellipsis to the third line
+  return truncatedMessages.join("<br />");
+}
+
+function openJenkinsJobUrl(jobName) {
+  if (currentJenkinsConfig.value && currentJenkinsConfig.value.url) {
+    let baseUrl = currentJenkinsConfig.value.url;
+    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+      baseUrl = `http://${baseUrl}`;
+    }
+    baseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    const jobUrl = `${baseUrl}job/${jobName}/`;
+    console.log(jobUrl);
+    utools.shellOpenExternal(jobUrl);
+  } else {
+    ElMessage.error("Jenkins 配置无效，无法打开链接。");
+  }
+}
+
+function openJenkinsBuildUrl(jobName, buildNumber) {
+  if (currentJenkinsConfig.value && currentJenkinsConfig.value.url) {
+    let baseUrl = currentJenkinsConfig.value.url;
+    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+      baseUrl = `http://${baseUrl}`;
+    }
+    baseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    const buildUrl = `${baseUrl}job/${jobName}/${buildNumber}/`;
+    utools.shellOpenExternal(buildUrl);
+  } else {
+    ElMessage.error("Jenkins 配置无效，无法打开链接。");
+  }
 }
 
 // --- 响应式状态 ---
@@ -377,8 +472,7 @@ async function refreshAllJobs() {
   await withLoading(async () => {
     const jobsData = await jenkinsApi.getJobsWithLatestBuild();
     allJobs.value = jobsData.jobs.sort(
-      (a, b) =>
-        (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
+      (a, b) => (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
     );
   }, "刷新 Job 列表失败");
 }
@@ -386,9 +480,12 @@ async function refreshAllJobs() {
 async function refreshJob(jobName) {
   jobLoading.value[jobName] = true;
   try {
-    const jobData = await jenkinsApi.getJob(jobName);
+    // 使用指定的 tree 参数来获取更详细的 Job 信息，包括 changeSets 和 culprits
+    const customTree = 'name,url,color,lastBuild[changeSets[items[*]],culprits[fullName],displayName,number,url,result,building,duration,timestamp]';
+    const jobData = await jenkinsApi.getJob(jobName, customTree);
     const index = allJobs.value.findIndex((job) => job.name === jobName);
     if (index !== -1) {
+      // 找到对应的 Job 并更新其数据
       allJobs.value[index] = { ...allJobs.value[index], ...jobData };
     }
   } catch (error) {
@@ -411,17 +508,20 @@ async function openBuildMenu(job) {
     const paramsProperty = jobData.property.find(
       (p) => p._class === "hudson.model.ParametersDefinitionProperty"
     );
+    // 过滤只显示 ChoiceParameterDefinition 类型的参数
     jobParameterDefinitions.value = paramsProperty
-      ? paramsProperty.parameterDefinitions
+      ? paramsProperty.parameterDefinitions.filter(
+          (param) => param.type === "ChoiceParameterDefinition"
+        )
       : [];
 
     // 初始化参数值
     buildParameters.value = {};
     jobParameterDefinitions.value.forEach((param) => {
-      if (param.defaultParameterValue) {
-        buildParameters.value[param.name] = param.defaultParameterValue.value;
-      } else if (param.type === 'ChoiceParameterDefinition' && param.choices && param.choices.length > 0) {
+      if (param.type === "ChoiceParameterDefinition" && param.choices && param.choices.length > 0) {
         buildParameters.value[param.name] = param.choices[0]; // 默认选择第一个
+      } else if (param.defaultParameterValue) {
+        buildParameters.value[param.name] = param.defaultParameterValue.value;
       } else {
         buildParameters.value[param.name] = ""; // 默认空字符串
       }
@@ -454,9 +554,9 @@ async function confirmBuildWithParams() {
   buildParamsVisible.value = false; // 关闭参数输入对话框
 
   const paramsToBuild = {};
-  jobParameterDefinitions.value.forEach(paramDef => {
+  jobParameterDefinitions.value.forEach((paramDef) => {
     // 只有非 WHideParameterDefinition 类型的参数才会被传递
-    if (paramDef.type !== 'WHideParameterDefinition') {
+    if (paramDef.type !== "WHideParameterDefinition") {
       paramsToBuild[paramDef.name] = buildParameters.value[paramDef.name];
     }
   });
@@ -504,7 +604,8 @@ const debouncedFilterJobs = debounce(() => {
   // The actual filtering logic is now in the computed property `filteredJobs`
   // This function just triggers the re-evaluation of `filteredJobs`
 }, 300);
-</script>"""
+</script>
+"""
 
 <style scoped>
 .el-header {
@@ -532,6 +633,36 @@ const debouncedFilterJobs = debounce(() => {
 .highlight {
   background-color: yellow;
   font-weight: bold;
+}
+
+.link-style {
+  color: #409eff; /* Element Plus primary color */
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.link-style:hover {
+  text-decoration: underline;
+}
+
+.link-style {
+  color: #409eff; /* Element Plus primary color */
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.link-style:hover {
+  text-decoration: underline;
+}
+
+.link-style {
+  color: #409eff; /* Element Plus primary color */
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.link-style:hover {
+  text-decoration: underline;
 }
 </style>
 

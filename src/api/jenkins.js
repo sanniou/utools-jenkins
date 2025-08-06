@@ -71,7 +71,7 @@ export function createJenkinsApi(config) {
      * @returns {Promise<any>}
      */
     getJobsWithLatestBuild() {
-      const tree = 'jobs[name,url,color,lastBuild[number,url,result,building,duration,timestamp]]';
+      const tree = 'jobs[name,url,color,lastBuild[changeSets[items[*]],culprits[fullName],displayName,number,url,result,building,duration,timestamp]]';
       return jenkinsFetch(`/api/json?tree=${tree}`);
     },
 
@@ -80,11 +80,19 @@ export function createJenkinsApi(config) {
      * @param {string} jobName - Job 的名称 (如果在文件夹中，请使用 'folder/jobName' 格式)
      * @returns {Promise<any>}
      */
-    getJob(jobName) {
-      // 关键改良 3: 对 jobName 进行编码，以支持文件夹路径
+    /**
+     * 获取单个 Job 的详细信息，包括最近的构建列表和参数定义。
+     * 关键改良 3: 对 jobName 进行编码，以支持文件夹路径
+     * 关键改良 5: 允许传入自定义的 `tree` 参数，以提高灵活性和效率。
+     * @param {string} jobName - Job 的名称 (如果在文件夹中，请使用 'folder/jobName' 格式)
+     * @param {string} [customTree] - 可选的 tree 参数，用于指定返回字段
+     * @returns {Promise<any>}
+     */
+    getJob(jobName, customTree) {
       const encodedJobName = jobName.split('/').map(encodeURIComponent).join('/job/');
-      const tree = 'builds[number,url,result,building,duration,estimatedDuration,queueId,timestamp,changeSet[items[msg,author[fullName]]]],actions[parameterDefinitions[*]],property[parameterDefinitions[*]]';
-      return jenkinsFetch(`/job/${encodedJobName}/api/json?tree=${tree}`);
+      const defaultTree = 'builds[number,url,result,building,duration,estimatedDuration,queueId,timestamp],property[parameterDefinitions[*]]';
+      const finalTree = customTree || defaultTree;
+      return jenkinsFetch(`/job/${encodedJobName}/api/json?tree=${finalTree}`);
     },
 
     /**
@@ -132,7 +140,7 @@ export function createJenkinsApi(config) {
         }
         formData.append('json', JSON.stringify(jenkinsParams));
 
-        return jenkinsFetch(`/job/${encodedJobName}/build`, {
+        return jenkinsFetch(`/job/${encodedJobName}/buildWithParameters`, {
             method: 'POST',
             body: formData
         });
