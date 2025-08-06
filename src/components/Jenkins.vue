@@ -152,11 +152,10 @@
           </el-table-column>
           <el-table-column label="Progress" min-width="80">
             <template #default="{ row }">
-              <el-progress
-                v-if="row.building"
-                :percentage="50"
-                :indeterminate="true"
-              />
+              <div v-if="row.building" style="display: flex; align-items: center;">
+                <el-progress :indeterminate="true" style="width: 60px; margin-right: 8px;" />
+                <span>进行中...</span>
+              </div>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -391,6 +390,9 @@ const buildParamsVisible = ref(false); // 控制参数输入对话框的显示
 const jobParameterDefinitions = ref([]); // 存储 Job 的参数定义
 const buildParameters = ref({}); // 存储用户输入的参数值
 
+const activePollingBuilds = ref(new Set()); // Stores build numbers that are currently being polled
+let pollingInterval = null; // To store the interval ID
+
 const filteredJobs = computed(() => {
   if (!searchQuery.value) {
     return allJobs.value;
@@ -420,10 +422,38 @@ watch(buildMenuVisible, (isVisible) => {
   const htmlElement = document.documentElement; // document.documentElement 就是 <html> 标签
   if (isVisible) {
     htmlElement.classList.add("html-no-scroll");
+    startPolling();
   } else {
     htmlElement.classList.remove("html-no-scroll");
+    stopPolling();
   }
 });
+
+// --- 轮询相关函数 ---
+function startPolling() {
+  // 确保只有一个轮询在运行
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+  }
+  pollingInterval = setInterval(async () => {
+    if (activePollingBuilds.value.size === 0) {
+      stopPolling();
+      return;
+    }
+    for (const buildKey of activePollingBuilds.value) {
+      const [jobName, buildNumber] = buildKey.split('-');
+      await refreshBuild(jobName, parseInt(buildNumber));
+    }
+  }, 5000); // 每 5 秒轮询一次
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+  activePollingBuilds.value.clear(); // 清空正在轮询的构建
+}
 
 // --- 生命周期钩子 ---
 onMounted(() => {
@@ -504,6 +534,13 @@ async function openBuildMenu(job) {
     const jobData = await jenkinsApi.getJob(job.name);
     selectedJobBuilds.value = jobData.builds || [];
 
+    // 将当前正在进行的构建添加到轮询列表
+    selectedJobBuilds.value.forEach(build => {
+      if (build.building) {
+        activePollingBuilds.value.add(`${job.name}-${build.number}`);
+      }
+    });
+
     // 从 property 中获取参数定义
     const paramsProperty = jobData.property.find(
       (p) => p._class === "hudson.model.ParametersDefinitionProperty"
@@ -543,10 +580,54 @@ async function buildJob(params = {}) {
   if (!selectedJob.value || !jenkinsApi) return;
 
   await withLoading(async () => {
-    await jenkinsApi.buildJob(selectedJob.value.name, params);
-    ElMessage.success(`构建已触发。`);
+    // 触发构建，并获取 queueId
+    const queueItem = await jenkinsApi.buildJob(selectedJob.value.name, params);
+    ElMessage.success(`构建已触发，队列 ID: ${queueItem.queueId}`);
+
+    // 立即刷新主列表的 Job 状态，确保 lastBuild 信息是最新的
     await refreshJob(selectedJob.value.name);
+
+    // 轮询队列，直到获取到 buildNumber
+    const newBuild = await pollQueueForBuild(queueItem.queueId, selectedJob.value.name);
+    if (newBuild) {
+      // 将新构建添加到构建菜单的顶部
+      selectedJobBuilds.value.unshift(newBuild);
+      // 如果新构建正在进行中，添加到轮询列表
+      if (newBuild.building) {
+        activePollingBuilds.value.add(`${selectedJob.value.name}-${newBuild.number}`);
+      }
+      ElMessage.success(`新构建 #${newBuild.number} 已添加到列表。`);
+    } else {
+      ElMessage.warning(`未能获取到新构建的详细信息。`);
+    }
+
   }, `构建 Job ${selectedJob.value.name} 失败`);
+}
+
+// 新增轮询队列的方法
+async function pollQueueForBuild(queueId, jobName) {
+  let buildNumber = null;
+  let attempts = 0;
+  const maxAttempts = 30; // 尝试 30 次，每次间隔 2 秒，总共 1 分钟
+  const delay = 2000; // 2 秒
+
+  while (attempts < maxAttempts && buildNumber === null) {
+    try {
+      const queueItem = await jenkinsApi.getQueueItem(queueId);
+      if (queueItem && queueItem.executable && queueItem.executable.number) {
+        buildNumber = queueItem.executable.number;
+        // 获取到 buildNumber 后，立即获取该构建的详细信息
+        const buildData = await jenkinsApi.getBuild(jobName, buildNumber);
+        return buildData;
+      }
+    } catch (error) {
+      console.error(`轮询队列 ${queueId} 失败:`, error);
+      // 即使失败也继续尝试，可能是临时网络问题
+    }
+    attempts++;
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  return null;
 }
 
 // 新增一个确认带参数构建的方法
@@ -576,6 +657,12 @@ async function refreshBuild(jobName, buildNumber) {
         ...selectedJobBuilds.value[buildIndex],
         ...buildData,
       };
+      // 如果构建不再进行中，从轮询列表中移除并刷新主列表 Job 状态，发送通知
+      if (!buildData.building) {
+        activePollingBuilds.value.delete(`${jobName}-${buildNumber}`);
+        await refreshJob(jobName); // 刷新主列表的 Job 状态
+        utools.showNotification(`Job: ${jobName} #${buildNumber} 构建完成，结果: ${getBuildStatusText(buildData.result, buildData.building)}`);
+      }
     }
   } catch (error) {
     console.error(`刷新构建 #${buildNumber} 失败:`, error);

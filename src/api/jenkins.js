@@ -38,7 +38,13 @@ export function createJenkinsApi(config) {
       }
       
       // 对于触发构建等操作，Jenkins 返回 201 Created 且 body 为空，需要正确处理
-      if (response.headers.get('content-length') === '0' || response.status === 201 || response.status === 204) {
+      // 关键修改：对于 201 或 204 状态，直接返回 response 对象，以便调用方可以读取 headers
+      if (response.status === 201 || response.status === 204) {
+        return response; // 返回整个响应对象
+      }
+
+      // 只有当 content-length 不为 0 时才尝试解析 JSON
+      if (response.headers.get('content-length') === '0') {
         return null;
       }
 
@@ -127,9 +133,10 @@ export function createJenkinsApi(config) {
      * @param {Record<string, any>} [params] - 构建参数 (可选)
      * @returns {Promise<null>}
      */
-    buildJob(jobName, params) {
+    async buildJob(jobName, params) {
       const encodedJobName = jobName.split('/').map(encodeURIComponent).join('/job/');
-      
+      let response;
+
       if (params && Object.keys(params).length > 0) {
         // 带参数构建
         const formData = new FormData();
@@ -140,14 +147,34 @@ export function createJenkinsApi(config) {
         }
         formData.append('json', JSON.stringify(jenkinsParams));
 
-        return jenkinsFetch(`/job/${encodedJobName}/buildWithParameters`, {
+        response = await jenkinsFetch(`/job/${encodedJobName}/buildWithParameters`, {
             method: 'POST',
             body: formData
         });
       } else {
         // 不带参数构建
-        return jenkinsFetch(`/job/${encodedJobName}/build`, { method: 'POST' });
+        response = await jenkinsFetch(`/job/${encodedJobName}/build`, { method: 'POST' });
       }
+
+      // 从 Location 头中提取 queueId
+      const locationHeader = response.headers.get('Location');
+      if (locationHeader) {
+        const match = locationHeader.match(/queue\/item\/(\d+)/);
+        if (match && match[1]) {
+          return { queueId: parseInt(match[1], 10) };
+        }
+      }
+      // 如果没有找到 queueId，返回一个空对象或抛出错误，取决于业务需求
+      return { queueId: null };
+    },
+
+    /**
+     * 获取队列中某个项的详细信息。
+     * @param {number} queueId - 队列项的 ID
+     * @returns {Promise<any>}
+     */
+    getQueueItem(queueId) {
+      return jenkinsFetch(`/queue/item/${queueId}/api/json`);
     }
   };
 }
