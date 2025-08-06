@@ -2,25 +2,38 @@
   <div>
     <el-container v-loading="loading">
       <el-header>
-        <el-row :gutter="20">
+        <el-row :gutter="20" align="middle">
           <el-col :span="16">
             <el-input
               v-model="searchQuery"
               placeholder="搜索 Job"
               clearable
               @input="debouncedFilterJobs"
-            />
+              class="input-with-select"
+            >
+              <template #prepend>
+                <el-select
+                  v-model="selectedConfigId"
+                  placeholder="实例"
+                  @change="handleConfigChange"
+                  style="width: 130px"
+                >
+                  <el-option
+                    v-for="config in allConfigs"
+                    :key="config._id"
+                    :label="config.data.url"
+                    :value="config._id"
+                  />
+                </el-select>
+              </template>
+            </el-input>
           </el-col>
-          <el-col :span="8" style="text-align: right">
+          <el-col :span="8" style="text-align: right;">
             <el-tooltip content="刷新列表" placement="top">
-              <el-button circle @click="refreshAllJobs">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
+              <el-button circle @click="refreshAllJobs"><el-icon><Refresh /></el-icon></el-button>
             </el-tooltip>
             <el-tooltip content="设置" placement="top">
-              <el-button circle @click="goToConfig">
-                <el-icon><Setting /></el-icon>
-              </el-button>
+              <el-button circle @click="goToConfig"><el-icon><Setting /></el-icon></el-button>
             </el-tooltip>
           </el-col>
         </el-row>
@@ -97,20 +110,16 @@
           </el-table-column>
           <el-table-column label="Action" min-width="90">
             <template #default="{ row }">
-              <el-tooltip content="刷新" placement="top">
-                <el-button
-                  circle
-                  @click="refreshJob(row.name)"
-                  :loading="jobLoading[row.name]"
-                >
-                  <el-icon><Refresh /></el-icon>
-                </el-button>
-              </el-tooltip>
-              <el-tooltip content="构建菜单" placement="top">
-                <el-button circle @click="openBuildMenu(row)">
-                  <el-icon><Menu /></el-icon>
-                </el-button>
-              </el-tooltip>
+              <el-button
+                circle
+                @click="refreshJob(row.name)"
+                :loading="jobLoading[row.name]"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+              <el-button circle @click="openBuildMenu(row)">
+                <el-icon><Menu /></el-icon>
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -178,15 +187,13 @@
           </el-table-column>
           <el-table-column label="操作" min-width="70">
             <template #default="{ row }">
-              <el-tooltip content="刷新" placement="top">
-                <el-button
-                  circle
-                  @click="refreshBuild(selectedJob.name, row.number)"
-                  :loading="buildLoading[`${selectedJob.name}-${row.number}`]"
-                >
-                  <el-icon><Refresh /></el-icon>
-                </el-button>
-              </el-tooltip>
+              <el-button
+                circle
+                @click="refreshBuild(selectedJob.name, row.number)"
+                :loading="buildLoading[`${selectedJob.name}-${row.number}`]"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -398,6 +405,7 @@ function openJenkinsBuildUrl(jobName, buildNumber) {
 const loading = ref(true);
 const jobLoading = ref({});
 const buildLoading = ref({});
+const allConfigs = ref([]); // 新增：存储所有配置
 const currentJenkinsConfig = ref(null);
 const allJobs = ref([]);
 const searchQuery = ref("");
@@ -406,6 +414,7 @@ const selectedJob = ref(null);
 const selectedJobBuilds = ref([]);
 const showAllBuilds = ref(false);
 
+const selectedConfigId = ref(null); // 新增：当前选中的配置ID
 const buildParamsVisible = ref(false); // 控制参数输入对话框的显示
 const jobParameterDefinitions = ref([]); // 存储 Job 的参数定义
 const buildParameters = ref({}); // 存储用户输入的参数值
@@ -477,9 +486,13 @@ function stopPolling() {
 
 // --- 生命周期钩子 ---
 onMounted(() => {
-  const allConfigs = utools.db.allDocs("jenkins");
-  if (allConfigs && allConfigs.length > 0) {
-    currentJenkinsConfig.value = allConfigs[0].data;
+  allConfigs.value = utools.db.allDocs("jenkins");
+  if (allConfigs.value && allConfigs.value.length > 0) {
+    // 默认选中第一个
+    selectedConfigId.value = allConfigs.value[0]._id;
+    currentJenkinsConfig.value = allConfigs.value.find(
+      (c) => c._id === selectedConfigId.value
+    )?.data;
     initJenkins();
   } else {
     loading.value = false;
@@ -498,6 +511,16 @@ function goToConfig() {
   utools.redirect("jenkins-set", "");
 }
 
+// 新增：处理配置切换的函数
+function handleConfigChange(configId) {
+  const selectedConf = allConfigs.value.find((c) => c._id === configId);
+  if (selectedConf) {
+    currentJenkinsConfig.value = selectedConf.data;
+    // 清空旧数据并重新初始化
+    allJobs.value = [];
+    initJenkins();
+  }
+}
 async function initJenkins() {
   if (!currentJenkinsConfig.value || !currentJenkinsConfig.value.url) {
     ElMessage.error("Jenkins 配置无效，请先进行配置");
@@ -747,29 +770,12 @@ const debouncedFilterJobs = debounce(() => {
   cursor: pointer;
   text-decoration: none;
 }
-
 .link-style:hover {
   text-decoration: underline;
 }
 
-.link-style {
-  color: #409eff; /* Element Plus primary color */
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.link-style:hover {
-  text-decoration: underline;
-}
-
-.link-style {
-  color: #409eff; /* Element Plus primary color */
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.link-style:hover {
-  text-decoration: underline;
+.input-with-select :deep(.el-input-group__prepend) {
+  background-color: var(--el-fill-color-blank);
 }
 </style>
 

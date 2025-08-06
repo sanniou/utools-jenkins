@@ -38,7 +38,7 @@
                 placeholder="http or https"
                 name="jkSchema"
                 v-model="config.data.schema"
-                @input="onInput(config)"
+                @input="debouncedSaveConfig(config)"
               ></el-input>
             </el-form-item>
             <el-form-item label="URL">
@@ -46,7 +46,7 @@
                 placeholder="jenkins url"
                 name="jkUrl"
                 v-model="config.data.url"
-                @input="onInput(config)"
+                @input="debouncedSaveConfig(config)"
               ></el-input>
             </el-form-item>
             <el-form-item label="Username">
@@ -54,7 +54,7 @@
                 placeholder="jenkins username(optional)"
                 name="jkUsername"
                 v-model="config.data.username"
-                @input="onInput(config)"
+                @input="debouncedSaveConfig(config)"
               ></el-input>
             </el-form-item>
             <el-form-item label="Password">
@@ -64,7 +64,7 @@
                 type="password"
                 show-password
                 v-model="config.data.password"
-                @input="onInput(config)"
+                @input="debouncedSaveConfig(config)"
               ></el-input>
             </el-form-item>
           </el-card>
@@ -106,8 +106,16 @@ function getConfList() {
   return allDocs;
 }
 
-function onInput(conf) {
-  let value = utools.db.get(conf._id);
+function debounce(func, delay) {
+  let timeout;
+  return function (...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), delay);
+  };
+}
+
+function saveConfig(conf) {
   let data = {
     _id: conf._id,
     data: {
@@ -116,11 +124,16 @@ function onInput(conf) {
       username: conf.data.username,
       password: conf.data.password,
     },
-    _rev: value == null ? null : value._rev,
   };
-  data._rev || delete data._rev;
+  // 获取最新的 _rev 以避免冲突
+  const existingDoc = utools.db.get(conf._id);
+  if (existingDoc) {
+    data._rev = existingDoc._rev;
+  }
   utools.db.put(data);
 }
+
+const debouncedSaveConfig = debounce(saveConfig, 500);
 
 function subConf() {
   if (configList.value.length > 0) {
