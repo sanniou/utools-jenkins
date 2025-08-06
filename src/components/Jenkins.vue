@@ -28,12 +28,16 @@
               </template>
             </el-input>
           </el-col>
-          <el-col :span="8" style="text-align: right;">
+          <el-col :span="8" style="text-align: right">
             <el-tooltip content="刷新列表" placement="top">
-              <el-button circle @click="refreshAllJobs"><el-icon><Refresh /></el-icon></el-button>
+              <el-button circle @click="refreshAllJobs"
+                ><el-icon><Refresh /></el-icon
+              ></el-button>
             </el-tooltip>
             <el-tooltip content="设置" placement="top">
-              <el-button circle @click="goToConfig"><el-icon><Setting /></el-icon></el-button>
+              <el-button circle @click="goToConfig"
+                ><el-icon><Setting /></el-icon
+              ></el-button>
             </el-tooltip>
           </el-col>
         </el-row>
@@ -85,7 +89,7 @@
               <span v-else>无构建历史</span>
             </template>
           </el-table-column>
-          <el-table-column label="Change Message"  min-width="220">
+          <el-table-column label="Change Message" min-width="220">
             <template #default="{ row }">
               <el-tooltip
                 :raw-content="true"
@@ -127,18 +131,27 @@
       </el-main>
     </el-container>
 
-    <el-dialog
+    <!-- 1. 将 el-dialog 替换为 el-drawer，以抽屉形式展示，交互更流畅 -->
+    <el-drawer
       v-model="buildMenuVisible"
-      :title="`构建菜单 - ${selectedJob?.name}`"
-      width="80%"
-      top="5vh"
-      :lock-scroll="false"
+      direction="rtl"
+      :show-close="false"
+      size="80%"
       :destroy-on-close="true"
+      @open="startPolling"
+      @close="stopPolling"
     >
-      <div
-        class="build-table-container"
-        style="max-height: 60vh; overflow-y: auto"
-      >
+      <!-- 2. 使用 #header 插槽自定义头部，增强交互性和视觉效果 -->
+      <template #header>
+        <h4 class="drawer-title">
+          构建菜单 -
+          <span class="link-style" @click="openJenkinsJobUrl(selectedJob.name)">
+            {{ selectedJob?.name }}</span
+          >
+        </h4>
+      </template>
+      <!-- 1. 使用 el-scrollbar 替代 div，以获得统一样式的滚动条和更优的布局 -->
+      <el-scrollbar max-height="60vh" class="build-table-container">
         <el-table :data="displayedBuilds" style="width: 100%" stripe border>
           <el-table-column prop="number" label="No" min-width="40">
             <template #default="{ row }">
@@ -161,8 +174,14 @@
           </el-table-column>
           <el-table-column label="Progress" min-width="80">
             <template #default="{ row }">
-              <div v-if="row.building" style="display: flex; align-items: center;">
-                <el-progress :indeterminate="true" style="width: 60px; margin-right: 8px;" />
+              <div
+                v-if="row.building"
+                style="display: flex; align-items: center"
+              >
+                <el-progress
+                  :indeterminate="true"
+                  style="width: 60px; margin-right: 8px"
+                />
                 <span>进行中...</span>
               </div>
               <span v-else>-</span>
@@ -206,7 +225,7 @@
             {{ showAllBuilds ? "收起" : "展开全部" }}
           </el-button>
         </div>
-      </div>
+      </el-scrollbar>
       <template #footer>
         <span class="dialog-footer">
           <el-button type="primary" @click="handleBuildClick"
@@ -214,7 +233,7 @@
           >
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 新增的参数输入对话框 -->
     <el-dialog
@@ -282,10 +301,10 @@ function formatTimestamp(ts) {
   const now = moment();
   const target = moment(ts);
 
-  const seconds = now.diff(target, 'seconds');
-  const minutes = now.diff(target, 'minutes');
-  const hours = now.diff(target, 'hours');
-  const days = now.diff(target, 'days');
+  const seconds = now.diff(target, "seconds");
+  const minutes = now.diff(target, "minutes");
+  const hours = now.diff(target, "hours");
+  const days = now.diff(target, "days");
 
   if (seconds < 60) {
     return "刚刚";
@@ -297,7 +316,7 @@ function formatTimestamp(ts) {
     return `${days}d ago`;
   } else {
     // 超过30天，显示完整的年-月-日
-    return moment(ts).format('YYYY-MM-DD');
+    return moment(ts).format("YYYY-MM-DD");
   }
 }
 
@@ -446,18 +465,6 @@ const displayedBuilds = computed(() => {
 
 let jenkinsApi = null;
 
-// --- 手动实现滚动锁定，目标为 <html> ---
-watch(buildMenuVisible, (isVisible) => {
-  const htmlElement = document.documentElement; // document.documentElement 就是 <html> 标签
-  if (isVisible) {
-    htmlElement.classList.add("html-no-scroll");
-    startPolling();
-  } else {
-    htmlElement.classList.remove("html-no-scroll");
-    stopPolling();
-  }
-});
-
 // --- 轮询相关函数 ---
 function startPolling() {
   // 确保只有一个轮询在运行
@@ -470,7 +477,7 @@ function startPolling() {
       return;
     }
     for (const buildKey of activePollingBuilds.value) {
-      const [jobName, buildNumber] = buildKey.split('-');
+      const [jobName, buildNumber] = buildKey.split("-");
       await refreshBuild(jobName, parseInt(buildNumber));
     }
   }, 5000); // 每 5 秒轮询一次
@@ -554,7 +561,8 @@ async function refreshJob(jobName) {
   jobLoading.value[jobName] = true;
   try {
     // 使用指定的 tree 参数来获取更详细的 Job 信息，包括 changeSets 和 culprits
-    const customTree = 'name,url,color,lastBuild[changeSets[items[*]],culprits[fullName],displayName,number,url,result,building,duration,timestamp]';
+    const customTree =
+      "name,url,color,lastBuild[changeSets[items[*]],culprits[fullName],displayName,number,url,result,building,duration,timestamp]";
     const jobData = await jenkinsApi.getJob(jobName, customTree);
     const index = allJobs.value.findIndex((job) => job.name === jobName);
     if (index !== -1) {
@@ -578,7 +586,7 @@ async function openBuildMenu(job) {
     selectedJobBuilds.value = jobData.builds || [];
 
     // 将当前正在进行的构建添加到轮询列表
-    selectedJobBuilds.value.forEach(build => {
+    selectedJobBuilds.value.forEach((build) => {
       if (build.building) {
         activePollingBuilds.value.add(`${job.name}-${build.number}`);
       }
@@ -598,7 +606,11 @@ async function openBuildMenu(job) {
     // 初始化参数值
     buildParameters.value = {};
     jobParameterDefinitions.value.forEach((param) => {
-      if (param.type === "ChoiceParameterDefinition" && param.choices && param.choices.length > 0) {
+      if (
+        param.type === "ChoiceParameterDefinition" &&
+        param.choices &&
+        param.choices.length > 0
+      ) {
         buildParameters.value[param.name] = param.choices[0]; // 默认选择第一个
       } else if (param.defaultParameterValue) {
         buildParameters.value[param.name] = param.defaultParameterValue.value;
@@ -631,19 +643,23 @@ async function buildJob(params = {}) {
     await refreshJob(selectedJob.value.name);
 
     // 轮询队列，直到获取到 buildNumber
-    const newBuild = await pollQueueForBuild(queueItem.queueId, selectedJob.value.name);
+    const newBuild = await pollQueueForBuild(
+      queueItem.queueId,
+      selectedJob.value.name
+    );
     if (newBuild) {
       // 将新构建添加到构建菜单的顶部
       selectedJobBuilds.value.unshift(newBuild);
       // 如果新构建正在进行中，添加到轮询列表
       if (newBuild.building) {
-        activePollingBuilds.value.add(`${selectedJob.value.name}-${newBuild.number}`);
+        activePollingBuilds.value.add(
+          `${selectedJob.value.name}-${newBuild.number}`
+        );
       }
       ElMessage.success(`新构建 #${newBuild.number} 已添加到列表。`);
     } else {
       ElMessage.warning(`未能获取到新构建的详细信息。`);
     }
-
   }, `构建 Job ${selectedJob.value.name} 失败`);
 }
 
@@ -668,7 +684,7 @@ async function pollQueueForBuild(queueId, jobName) {
       // 即使失败也继续尝试，可能是临时网络问题
     }
     attempts++;
-    await new Promise(resolve => setTimeout(resolve, delay));
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
   return null;
 }
@@ -704,7 +720,12 @@ async function refreshBuild(jobName, buildNumber) {
       if (!buildData.building) {
         activePollingBuilds.value.delete(`${jobName}-${buildNumber}`);
         await refreshJob(jobName); // 刷新主列表的 Job 状态
-        utools.showNotification(`Job: ${jobName} #${buildNumber} 构建完成，结果: ${getBuildStatusText(buildData.result, buildData.building)}`);
+        utools.showNotification(
+          `Job: ${jobName} #${buildNumber} 构建完成，结果: ${getBuildStatusText(
+            buildData.result,
+            buildData.building
+          )}`
+        );
       }
     }
   } catch (error) {
@@ -760,16 +781,26 @@ const debouncedFilterJobs = debounce(() => {
   padding-top: 10px; /* 与表格的间距 */
 }
 
+.el-drawer__body {
+  padding: 5px;
+}
+
+.drawer-title {
+  margin: 0; /* 移除 h4 的默认 margin */
+  font-size: 1rem; /* 保持与默认标题大小一致 */
+  color: var(--el-text-color-primary); /* 保持与默认标题颜色一致 */
+}
+
+/* 3. 为抽屉的 Header 添加下边框和内边距，提升视觉层次感 */
+:deep(.el-drawer__header) {
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
 .highlight {
   background-color: yellow;
   font-weight: bold;
 }
 
-.link-style {
-  color: #409eff; /* Element Plus primary color */
-  cursor: pointer;
-  text-decoration: none;
-}
 .link-style:hover {
   text-decoration: underline;
 }
@@ -783,19 +814,11 @@ const debouncedFilterJobs = debounce(() => {
 /* 1. 始终为滚动条轨道预留空间，防止布局跳动 */
 html {
   scrollbar-gutter: stable;
-}
-
-/* 2. 视觉上隐藏主滚动条 */
-html::-webkit-scrollbar {
-  display: none; /* Webkit 浏览器 (Chrome, Safari, Edge) */
-}
-html {
   -ms-overflow-style: none; /* IE */
   scrollbar-width: none; /* Firefox */
 }
-
-/* 3. 定义一个用于锁定滚动的类 */
-html.html-no-scroll {
-  overflow: hidden;
+/* 2. 视觉上隐藏主滚动条 */
+body::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
 }
 </style>
