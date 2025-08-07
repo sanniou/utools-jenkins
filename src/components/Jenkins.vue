@@ -193,19 +193,12 @@
               <el-link :href="row.url" target="_blank">{{ row.url }}</el-link>
             </template>
           </el-table-column>
-          <el-table-column label="Progress" min-width="80">
+          <el-table-column label="Progress" min-width="120">
             <template #default="{ row }">
-              <div
-                v-if="row.building"
-                style="display: flex; align-items: center"
-              >
-                <el-progress
-                  :indeterminate="true"
-                  style="width: 60px; margin-right: 8px"
-                />
-                <span>进行中...</span>
-              </div>
-              <span v-else>-</span>
+              <el-progress
+                :percentage="getBuildPercentage(row)"
+                :status="getProgressStatus(row)"
+              />
             </template>
           </el-table-column>
           <el-table-column label="Result" min-width="60" align="center">
@@ -552,6 +545,35 @@ async function withLoading(fn, errorMessage = "操作失败") {
     ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
   } finally {
     loading.value = false;
+  }
+}
+
+function getBuildPercentage(build) {
+  if (!build) return 0;
+  if (!build.building) {
+    return 100;
+  }
+  if (build.timestamp <= 0 || build.estimatedDuration <= 0) {
+    return 0;
+  }
+  const elapsedTime = Date.now() - build.timestamp;
+  const percentage = Math.floor((elapsedTime / build.estimatedDuration) * 100);
+  return Math.min(percentage, 100); // 防止超过 100%
+}
+
+function getProgressStatus(build) {
+  if (build.building) {
+    return undefined; // 使用主题色
+  }
+  switch (build.result) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+      return "exception";
+    case "ABORTED":
+      return "warning";
+    default:
+      return undefined; // 其他情况（如 UNSTABLE）也使用主题色
   }
 }
 
