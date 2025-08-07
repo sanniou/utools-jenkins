@@ -421,15 +421,23 @@ function getFirstLineChangeSet(changeSets) {
   return firstMsg.split("\n")[0];
 }
 
+const colorClassMap = {
+  anime: "status-yellow-anime",
+  blue: "status-blue",
+  red: "status-red",
+  aborted: "status-grey",
+  disabled: "status-grey",
+  notbuilt: "status-grey",
+};
+
 function getJobStatusClass(color) {
-  if (!color) return "status-grey";
-  if (color.includes("anime")) return "status-yellow-anime";
-  if (color.includes("blue")) return "status-blue";
-  if (color.includes("red")) return "status-red";
-  if (color.includes("aborted")) return "status-grey";
-  if (color.includes("disabled")) return "status-grey";
-  if (color.includes("notbuilt")) return "status-grey";
-  return "status-grey";
+  if (!color) return "status-grey"; // Job 没有颜色信息
+
+  for (const key in colorClassMap) {
+    if (color.includes(key)) return colorClassMap[key];
+  }
+  console.warn(`未知的 Jenkins color 状态: "${color}"，已回退到灰色。`);
+  return "status-grey"; // 对于未知的颜色，回退到灰色
 }
 
 function openJenkinsJobUrl(jobName) {
@@ -1019,6 +1027,7 @@ onUnmounted(() => {
   border-radius: 50%;
   margin-right: 8px;
   display: inline-block;
+  flex-shrink: 0; /* 关键：防止圆点在空间不足时被压缩 */
 }
 
 .status-blue {
