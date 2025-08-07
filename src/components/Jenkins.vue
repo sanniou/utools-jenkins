@@ -896,11 +896,18 @@ async function refreshBuild(jobName, buildNumber) {
         ...buildData,
       };
     }
+
+    // 如果构建已完成，则将其从 Build 列表轮询中移除，不再继续刷新
+    if (!buildData.building) {
+      buildListPollingBuilds.value.delete(buildKey);
+    }
   } catch (error) {
     console.error(`刷新构建 #${buildNumber} 失败:`, error);
     ElMessage.error(
       `刷新构建 #${buildNumber} 失败: ${error.message || "未知错误"}`
     );
+    // 发生错误时也将其从轮询中移除，防止无限次失败
+    buildListPollingBuilds.value.delete(buildKey);
   } finally {
     buildLoading.value[buildKey] = false;
   }
