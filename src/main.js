@@ -1,17 +1,5 @@
 import { createApp } from "vue";
 import App from "./App.vue";
-import {
-  ElSelect,
-  ElButton,
-  ElInput,
-  ElLink,
-  ElImage,
-  ElCard,
-  ElTable,
-  ElTableColumn,
-  ElDialog,
-  ElDivider,
-} from "element-plus";
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import utools_dev from "./js/utools_mock";
@@ -50,17 +38,5 @@ const app = createApp(App);
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
-app.component(ElButton.name, ElButton);
-app.component(ElInput.name, ElInput);
-app.component(ElLink.name, ElLink);
-app.component(ElDivider.name, ElDivider);
-app.component(ElImage.name, ElImage);
-app.component(ElCard.name, ElCard);
-app.component(ElTable.name, ElTable);
-app.component(ElTableColumn.name, ElTableColumn);
-app.component(ElDialog.name, ElDialog);
-// app.use(ElementPlus);
 app.use(router);
 app.mount("#app");
-
-

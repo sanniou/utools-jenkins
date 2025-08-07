@@ -155,12 +155,11 @@
 
     <el-drawer
       v-model="buildMenuVisible"
+      v-loading="drawerLoading"
       direction="rtl"
       :show-close="false"
       size="80%"
       :destroy-on-close="true"
-      @open="startPolling"
-      @close="stopPolling"
     >
       <template #header>
         <h4 class="drawer-title">
@@ -247,7 +246,10 @@
       </el-scrollbar>
       <template #footer>
         <span class="dialog-footer">
-          <el-button type="primary" @click="handleBuildClick"
+          <el-button
+            type="primary"
+            @click="handleBuildClick"
+            :loading="buildTriggerLoading"
             >立即构建</el-button
           >
         </span>
@@ -292,7 +294,10 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="buildParamsVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmBuildWithParams"
+          <el-button
+            type="primary"
+            @click="confirmBuildWithParams"
+            :loading="buildTriggerLoading"
             >确定构建</el-button
           >
         </span>
@@ -302,7 +307,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, computed, watch, onUnmounted } from "vue";
 import { ElMessage, ElIcon } from "element-plus";
 import { Refresh, Menu, Setting } from "@element-plus/icons-vue";
 import moment from "moment";
@@ -431,8 +436,13 @@ function openJenkinsJobUrl(jobName) {
       baseUrl = `http://${baseUrl}`;
     }
     baseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    const jobUrl = `${baseUrl}job/${jobName}/`;
-    console.log(jobUrl);
+    // 修复：当 Job 名称包含特殊字符或位于文件夹中时，需要正确编码 URL
+    // 例如 'folder/my job' -> 'job/folder/job/my%20job'
+    const encodedJobPath = jobName
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/job/");
+    const jobUrl = `${baseUrl}job/${encodedJobPath}/`;
     utools.shellOpenExternal(jobUrl);
   } else {
     ElMessage.error("Jenkins 配置无效，无法打开链接。");
@@ -446,7 +456,12 @@ function openJenkinsBuildUrl(jobName, buildNumber) {
       baseUrl = `http://${baseUrl}`;
     }
     baseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    const buildUrl = `${baseUrl}job/${jobName}/${buildNumber}/`;
+    // 修复：当 Job 名称包含特殊字符或位于文件夹中时，需要正确编码 URL
+    const encodedJobPath = jobName
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/job/");
+    const buildUrl = `${baseUrl}job/${encodedJobPath}/${buildNumber}/`;
     utools.shellOpenExternal(buildUrl);
   } else {
     ElMessage.error("Jenkins 配置无效，无法打开链接。");
@@ -457,6 +472,8 @@ function openJenkinsBuildUrl(jobName, buildNumber) {
 const loading = ref(true);
 const jobLoading = ref({});
 const buildLoading = ref({});
+const drawerLoading = ref(false);
+const buildTriggerLoading = ref(false);
 const allConfigs = ref([]);
 const currentJenkinsConfig = ref(null);
 const allJobs = ref([]);
@@ -471,18 +488,14 @@ const selectedConfigId = ref(null);
 const buildParamsVisible = ref(false);
 const jobParameterDefinitions = ref([]);
 const buildParameters = ref({});
-
-const activePollingBuilds = ref(new Set());
-let pollingInterval = null;
+const jobCompletionPollingSet = ref(new Set()); // 存储需要检查是否完成的 Job 名称
+const buildListPollingBuilds = ref(new Set()); // 用于 Build 抽屉的进度轮询
 
 const filteredJobs = computed(() => {
   if (!searchQuery.value) {
     return allJobs.value;
   }
-  const keywords = searchQuery.value
-    .toLowerCase()
-    .split(" ")
-    .filter((k) => k);
+  const keywords = searchQuery.value.toLowerCase().split(" ").filter(Boolean);
   return allJobs.value.filter((job) => {
     const jobName = job.name.toLowerCase();
     return keywords.every((keyword) => jobName.includes(keyword));
@@ -501,32 +514,134 @@ const lastUpdateTimeFormatted = computed(() => {
   return `最后更新于: ${moment(lastUpdateTime.value).format("HH:mm:ss")}`;
 });
 
-let jenkinsApi = null;
+// --- 辅助函数 (新增) ---
+function parseBuildKey(buildKey) {
+  const lastHyphenIndex = buildKey.lastIndexOf("-");
+  if (lastHyphenIndex === -1) {
+    console.error("轮询键格式错误，无法解析:", buildKey);
+    return {};
+  }
+  const jobName = buildKey.substring(0, lastHyphenIndex);
+  const buildNumberStr = buildKey.substring(lastHyphenIndex + 1);
+  const buildNumber = parseInt(buildNumberStr, 10);
+
+  if (isNaN(buildNumber)) {
+    console.error("轮询键中的 build number 无效:", buildKey);
+    return {};
+  }
+  return { jobName, buildNumber };
+}
+
+async function withLoading(fn, errorMessage = "操作失败") {
+  loading.value = true;
+  try {
+    await fn();
+  } catch (error) {
+    console.error(errorMessage + ":", error);
+    ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
+  } finally {
+    loading.value = false;
+  }
+}
 
 // --- 轮询相关函数 ---
-function startPolling() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
-  pollingInterval = setInterval(async () => {
-    if (activePollingBuilds.value.size === 0) {
-      stopPolling();
+let jobListPollingInterval = null;
+let buildListPollingInterval = null;
+
+function startJobListPolling() {
+  if (jobListPollingInterval) return; // 防止重复启动
+  console.log("启动 Job 完成状态轮询...");
+  jobListPollingInterval = setInterval(async () => {
+    if (jobCompletionPollingSet.value.size === 0) {
+      stopJobListPolling();
       return;
     }
-    for (const buildKey of activePollingBuilds.value) {
-      const [jobName, buildNumber] = buildKey.split("-");
-      await refreshBuild(jobName, parseInt(buildNumber));
+
+    // 复制 Set 以安全遍历，防止在异步操作中修改集合导致问题
+    const jobsToPoll = new Set(jobCompletionPollingSet.value);
+    for (const jobName of jobsToPoll) {
+      try {
+        // 1. 记录刷新前的状态
+        const jobBefore = allJobs.value.find((j) => j.name === jobName);
+        const wasBuilding = jobBefore?.color?.includes("anime");
+
+        // 2. 刷新 Job 信息
+        await refreshJob(jobName);
+
+        // 3. 记录刷新后的状态
+        const jobAfter = allJobs.value.find((j) => j.name === jobName);
+        const isBuilding = jobAfter?.color?.includes("anime");
+
+        // 4. 如果从“构建中”变为“已完成”，则发送通知并停止轮询此 Job
+        if (wasBuilding && !isBuilding && jobAfter.lastBuild) {
+          console.log(`Job ${jobName} 构建完成，发送通知。`);
+          utools.showNotification(
+            `Job: ${jobName} #${
+              jobAfter.lastBuild.number
+            } 构建完成，结果: ${getBuildStatusText(
+              jobAfter.lastBuild.result,
+              false
+            )}`
+          );
+          jobCompletionPollingSet.value.delete(jobName);
+        } else if (!isBuilding) {
+          // 如果因为某种原因（例如，启动时 Job 已经完成），它仍在轮询列表中，则将其移除
+          jobCompletionPollingSet.value.delete(jobName);
+        }
+      } catch (error) {
+        console.error(`Job 列表轮询刷新 Job ${jobName} 失败:`, error);
+        // 发生错误时也将其从轮询中移除，防止无限次失败
+        jobCompletionPollingSet.value.delete(jobName);
+      }
     }
-  }, 5000);
+  }, 10000); // Job 列表轮询频率 10 秒
 }
 
-function stopPolling() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
+function stopJobListPolling() {
+  if (jobListPollingInterval) {
+    clearInterval(jobListPollingInterval);
+    jobListPollingInterval = null;
   }
-  activePollingBuilds.value.clear(); // 清空正在轮询的构建
+  console.log("停止 Job 完成状态轮询。");
 }
+
+function startBuildListPolling() {
+  if (buildListPollingInterval) return; // 防止重复启动
+  buildListPollingInterval = setInterval(async () => {
+    console.log("启动 Build 列表轮询...");
+    if (buildListPollingBuilds.value.size === 0) {
+      stopBuildListPolling();
+      return;
+    }
+    try {
+      const buildsToPoll = new Set(buildListPollingBuilds.value);
+      for (const buildKey of buildsToPoll) {
+        const { jobName, buildNumber } = parseBuildKey(buildKey);
+        if (jobName && buildNumber) {
+          try {
+            await refreshBuild(jobName, buildNumber);
+          } catch (error) {
+            console.error(`Build 列表轮询刷新构建 ${buildKey} 失败:`, error);
+            // 错误处理：可以考虑重试或从轮询队列中移除
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Build 列表轮询总任务失败:", error);
+    }
+  }, 3000); // Build 抽屉轮询频率 3 秒
+}
+
+function stopBuildListPolling() {
+  console.log("停止 Build 列表轮询。");
+  if (buildListPollingInterval) {
+    clearInterval(buildListPollingInterval);
+    buildListPollingInterval = null;
+  }
+}
+
+// --- 轮询相关函数 end ---
+let jenkinsApi = null;
 
 // --- 生命周期钩子 ---
 onMounted(() => {
@@ -562,6 +677,9 @@ function handleConfigChange(configId) {
     currentJenkinsConfig.value = selectedConf.data;
     // 清空旧数据并重新初始化
     allJobs.value = [];
+    jobCompletionPollingSet.value.clear(); // 切换实例时，清空轮询列表
+    buildListPollingBuilds.value.clear();
+    // 相关的 watcher 会自动调用 stopPolling 函数
     initJenkins();
   }
 }
@@ -592,6 +710,17 @@ async function refreshAllJobs() {
       (a, b) => (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
     );
     lastUpdateTime.value = new Date(); // 1. 在数据成功获取后，更新时间戳
+
+    jobCompletionPollingSet.value.clear();
+    allJobs.value.forEach((job) => {
+      if (job.color?.includes("anime") && job.lastBuild) {
+        jobCompletionPollingSet.value.add(job.name);
+      }
+    });
+    // 如果有正在构建的任务，启动轮询
+    if (jobCompletionPollingSet.value.size > 0) {
+      startJobListPolling();
+    }
   }, "刷新 Job 列表失败");
 }
 
@@ -619,17 +748,16 @@ async function openBuildMenu(job) {
   selectedJob.value = job;
   buildMenuVisible.value = true;
   showAllBuilds.value = false; // 重置状态
-  await withLoading(async () => {
+  drawerLoading.value = true;
+  try {
     const jobData = await jenkinsApi.getJob(job.name);
     selectedJobBuilds.value = jobData.builds || [];
 
-    // 将当前正在进行的构建添加到轮询列表
+    // 启动 Build 抽屉的进度轮询
     selectedJobBuilds.value.forEach((build) => {
-      if (build.building) {
-        activePollingBuilds.value.add(`${job.name}-${build.number}`);
-      }
+      if (build.building)
+        buildListPollingBuilds.value.add(`${job.name}-${build.number}`);
     });
-
     // 从 property 中获取参数定义
     const paramsProperty = jobData.property.find(
       (p) => p._class === "hudson.model.ParametersDefinitionProperty"
@@ -656,7 +784,14 @@ async function openBuildMenu(job) {
         buildParameters.value[param.name] = ""; // 默认空字符串
       }
     });
-  }, `获取 Job ${job.name} 的构建历史和参数失败`);
+  } catch (error) {
+    const errorMessage = `获取 Job ${job.name} 的构建历史和参数失败`;
+    console.error(errorMessage + ":", error);
+    ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
+    buildMenuVisible.value = false; // 出现错误时关闭抽屉
+  } finally {
+    drawerLoading.value = false;
+  }
 }
 
 // 新增一个处理“立即构建”按钮点击的方法
@@ -672,7 +807,8 @@ function handleBuildClick() {
 async function buildJob(params = {}) {
   if (!selectedJob.value || !jenkinsApi) return;
 
-  await withLoading(async () => {
+  buildTriggerLoading.value = true;
+  try {
     // 触发构建，并获取 queueId
     const queueItem = await jenkinsApi.buildJob(selectedJob.value.name, params);
     ElMessage.success(`构建已触发，队列 ID: ${queueItem.queueId}`);
@@ -688,17 +824,19 @@ async function buildJob(params = {}) {
     if (newBuild) {
       // 将新构建添加到构建菜单的顶部
       selectedJobBuilds.value.unshift(newBuild);
-      // 如果新构建正在进行中，添加到轮询列表
+      // 如果新构建正在进行中，将其添加到相应的轮询列表
       if (newBuild.building) {
-        activePollingBuilds.value.add(
-          `${selectedJob.value.name}-${newBuild.number}`
-        );
+        jobCompletionPollingSet.value.add(selectedJob.value.name);
+        startJobListPolling(); // 确保轮询已启动
       }
-      ElMessage.success(`新构建 #${newBuild.number} 已添加到列表。`);
-    } else {
-      ElMessage.warning(`未能获取到新构建的详细信息。`);
     }
-  }, `构建 Job ${selectedJob.value.name} 失败`);
+  } catch (error) {
+    const errorMessage = `构建 Job ${selectedJob.value.name} 失败`;
+    console.error(errorMessage + ":", error);
+    ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
+  } finally {
+    buildTriggerLoading.value = false;
+  }
 }
 
 // 新增轮询队列的方法
@@ -743,9 +881,12 @@ async function confirmBuildWithParams() {
 }
 
 async function refreshBuild(jobName, buildNumber) {
-  buildLoading.value[`${jobName}-${buildNumber}`] = true;
+  const buildKey = `${jobName}-${buildNumber}`;
+  buildLoading.value[buildKey] = true;
   try {
     const buildData = await jenkinsApi.getBuild(jobName, buildNumber);
+
+    // 更新抽屉中的构建列表 UI
     const buildIndex = selectedJobBuilds.value.findIndex(
       (build) => build.number === buildNumber
     );
@@ -754,17 +895,6 @@ async function refreshBuild(jobName, buildNumber) {
         ...selectedJobBuilds.value[buildIndex],
         ...buildData,
       };
-      // 如果构建不再进行中，从轮询列表中移除并刷新主列表 Job 状态，发送通知
-      if (!buildData.building) {
-        activePollingBuilds.value.delete(`${jobName}-${buildNumber}`);
-        await refreshJob(jobName); // 刷新主列表的 Job 状态
-        utools.showNotification(
-          `Job: ${jobName} #${buildNumber} 构建完成，结果: ${getBuildStatusText(
-            buildData.result,
-            buildData.building
-          )}`
-        );
-      }
     }
   } catch (error) {
     console.error(`刷新构建 #${buildNumber} 失败:`, error);
@@ -772,27 +902,42 @@ async function refreshBuild(jobName, buildNumber) {
       `刷新构建 #${buildNumber} 失败: ${error.message || "未知错误"}`
     );
   } finally {
-    buildLoading.value[`${jobName}-${buildNumber}`] = false;
+    buildLoading.value[buildKey] = false;
   }
 }
+watch(buildMenuVisible, (isVisible) => {
+  console.log("抽屉状态改变:", isVisible);
 
-async function withLoading(fn, errorMessage = "操作失败") {
-  loading.value = true;
-  try {
-    await fn();
-  } catch (error) {
-    console.error(errorMessage + ":", error);
-    ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
-  } finally {
-    loading.value = false;
+  if (!isVisible) {
+    // 当抽屉关闭时，清空并停止所有 Build 列表的进度轮询
+    buildListPollingBuilds.value.clear();
+    stopBuildListPolling();
+  } else {
+    // 抽屉显示时，启动 Build 列表轮询
+    if (selectedJob && selectedJob.value) {
+      // 添加正在构建的任务到轮询
+      selectedJobBuilds.value.forEach((build) => {
+        if (build.building)
+          buildListPollingBuilds.value.add(
+            `${selectedJob.value.name}-${build.number}`
+          );
+      });
+      startBuildListPolling();
+    }
   }
-}
+});
 
 // Debounced filter function
 const debouncedFilterJobs = debounce(() => {
   // The actual filtering logic is now in the computed property `filteredJobs`
   // 2. 移除此处的更新逻辑，因为它只与过滤相关，不代表数据刷新
 }, 300);
+
+onUnmounted(() => {
+  stopJobListPolling();
+  stopBuildListPolling();
+  console.log("Jenkins 组件卸载，停止所有轮询");
+});
 </script>
 
 <style scoped>
