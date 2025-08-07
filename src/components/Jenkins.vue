@@ -678,11 +678,12 @@ function handleConfigChange(configId) {
   const selectedConf = allConfigs.value.find((c) => c._id === configId);
   if (selectedConf) {
     currentJenkinsConfig.value = selectedConf.data;
-    // 清空旧数据并重新初始化
+    // 切换实例时，立即停止所有轮询并清空状态
+    stopJobListPolling();
+    stopBuildListPolling(); // 尽管抽屉可能已关闭，但为保险起见也调用
     allJobs.value = [];
-    jobCompletionPollingSet.value.clear(); // 切换实例时，清空轮询列表
+    jobCompletionPollingSet.value.clear();
     buildListPollingBuilds.value.clear();
-    // 相关的 watcher 会自动调用 stopPolling 函数
     initJenkins();
   }
 }
@@ -708,19 +709,24 @@ async function initJenkins() {
 
 async function refreshAllJobs() {
   await withLoading(async () => {
+    // 1. 停止当前正在运行的轮询，确保我们从一个干净的状态开始
+    stopJobListPolling();
+
     const jobsData = await jenkinsApi.getJobsWithLatestBuild();
     allJobs.value = jobsData.jobs.sort(
       (a, b) => (b.lastBuild?.timestamp || 0) - (a.lastBuild?.timestamp || 0)
     );
-    lastUpdateTime.value = new Date(); // 1. 在数据成功获取后，更新时间戳
+    lastUpdateTime.value = new Date();
 
+    // 2. 清空旧的轮询任务集合
     jobCompletionPollingSet.value.clear();
+    // 3. 重新检测需要轮询的 Job
     allJobs.value.forEach((job) => {
       if (job.color?.includes("anime") && job.lastBuild) {
         jobCompletionPollingSet.value.add(job.name);
       }
     });
-    // 如果有正在构建的任务，启动轮询
+    // 4. 如果有正在构建的任务，启动新的轮询
     if (jobCompletionPollingSet.value.size > 0) {
       startJobListPolling();
     }
