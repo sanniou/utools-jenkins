@@ -155,7 +155,6 @@
 
     <el-drawer
       v-model="buildMenuVisible"
-      v-loading="drawerLoading"
       direction="rtl"
       :show-close="false"
       size="80%"
@@ -169,7 +168,11 @@
           >
         </h4>
       </template>
-      <el-scrollbar max-height="60vh" class="build-table-container">
+      <el-scrollbar
+        v-loading="drawerLoading"
+        max-height="60vh"
+        class="build-table-container"
+      >
         <el-table :data="displayedBuilds" style="width: 100%" stripe border>
           <el-table-column prop="number" label="No" min-width="40">
             <template #default="{ row }">
