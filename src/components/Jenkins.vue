@@ -640,8 +640,8 @@ function stopJobListPolling() {
 
 function startBuildListPolling() {
   if (buildListPollingInterval) return; // 防止重复启动
+  console.log("启动 Build 列表轮询...");
   buildListPollingInterval = setInterval(async () => {
-    console.log("启动 Build 列表轮询...");
     if (buildListPollingBuilds.value.size === 0) {
       stopBuildListPolling();
       return;
@@ -655,7 +655,8 @@ function startBuildListPolling() {
             await refreshBuild(jobName, buildNumber);
           } catch (error) {
             console.error(`Build 列表轮询刷新构建 ${buildKey} 失败:`, error);
-            // 错误处理：可以考虑重试或从轮询队列中移除
+            // 错误处理：从轮询队列中移除，防止无限次失败
+            buildListPollingBuilds.value.delete(buildKey);
           }
         }
       }
@@ -865,8 +866,16 @@ async function buildJob(params = {}) {
       selectedJobBuilds.value.unshift(newBuild);
       // 如果新构建正在进行中，将其添加到相应的轮询列表
       if (newBuild.building) {
+        // 问题修复：将新构建同时添加到主列表轮询和 Build 菜单轮询
+        const buildKey = `${selectedJob.value.name}-${newBuild.number}`;
+
+        // 1. 添加到主列表轮询（用于完成通知）
         jobCompletionPollingSet.value.add(selectedJob.value.name);
-        startJobListPolling(); // 确保轮询已启动
+        startJobListPolling();
+
+        // 2. 添加到 Build 菜单轮询（用于更新进度条）
+        buildListPollingBuilds.value.add(buildKey);
+        startBuildListPolling(); // 确保 Build 菜单轮询也已启动
       }
     }
   } catch (error) {
