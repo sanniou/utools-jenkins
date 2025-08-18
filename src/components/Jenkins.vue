@@ -616,6 +616,7 @@ function startJobListPolling() {
               false
             )}`
           );
+          utools.shellBeep();
           jobCompletionPollingSet.value.delete(jobName);
         } else if (!isBuilding) {
           // 如果因为某种原因（例如，启动时 Job 已经完成），它仍在轮询列表中，则将其移除
