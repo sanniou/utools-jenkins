@@ -847,44 +847,56 @@ function handleBuildClick() {
 // 修改 buildJob 方法，使其接收参数
 async function buildJob(params = {}) {
   if (!selectedJob.value || !jenkinsApi) return;
+  const jobToBuild = selectedJob.value; // 关键：捕获当前操作的 Job
 
   buildTriggerLoading.value = true;
   try {
     // 触发构建，并获取 queueId
-    const queueItem = await jenkinsApi.buildJob(selectedJob.value.name, params);
+    const queueItem = await jenkinsApi.buildJob(jobToBuild.name, params);
     ElMessage.success(`构建已触发，队列 ID: ${queueItem.queueId}`);
 
     // 立即刷新主列表的 Job 状态，确保 lastBuild 信息是最新的
-    await refreshJob(selectedJob.value.name);
+    await refreshJob(jobToBuild.name);
 
     // 轮询队列，直到获取到 buildNumber
     const newBuild = await pollQueueForBuild(
       queueItem.queueId,
-      selectedJob.value.name
+      jobToBuild.name
     );
-    if (newBuild) {
+
+    // 关键：在更新UI前，检查当前抽屉的 Job 是否还是我们触发构建的那个
+    if (newBuild && selectedJob.value?.name === jobToBuild.name) {
       // 将新构建添加到构建菜单的顶部
       selectedJobBuilds.value.unshift(newBuild);
       // 如果新构建正在进行中，将其添加到相应的轮询列表
       if (newBuild.building) {
-        // 问题修复：将新构建同时添加到主列表轮询和 Build 菜单轮询
-        const buildKey = `${selectedJob.value.name}-${newBuild.number}`;
+        const buildKey = `${jobToBuild.name}-${newBuild.number}`;
 
         // 1. 添加到主列表轮询（用于完成通知）
-        jobCompletionPollingSet.value.add(selectedJob.value.name);
+        jobCompletionPollingSet.value.add(jobToBuild.name);
         startJobListPolling();
 
         // 2. 添加到 Build 菜单轮询（用于更新进度条）
         buildListPollingBuilds.value.add(buildKey);
-        startBuildListPolling(); // 确保 Build 菜单轮询也已启动
+        startBuildListPolling();
       }
+    } else {
+      console.log(
+        `构建 ${jobToBuild.name} 已完成，但用户已切换视图，取消UI更新。`
+      );
     }
   } catch (error) {
-    const errorMessage = `构建 Job ${selectedJob.value.name} 失败`;
+    const errorMessage = `构建 Job ${jobToBuild.name} 失败`;
     console.error(errorMessage + ":", error);
-    ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
+    // 关键：只在当前 Job 的上下文下显示错误
+    if (selectedJob.value?.name === jobToBuild.name) {
+      ElMessage.error(`${errorMessage}: ${error.message || "未知错误"}`);
+    }
   } finally {
-    buildTriggerLoading.value = false;
+    // 关键：只在当前 Job 的上下文下重置加载状态
+    if (selectedJob.value?.name === jobToBuild.name) {
+      buildTriggerLoading.value = false;
+    }
   }
 }
 
@@ -968,6 +980,7 @@ watch(buildMenuVisible, (isVisible) => {
     // 当抽屉关闭时，清空并停止所有 Build 列表的进度轮询
     buildListPollingBuilds.value.clear();
     stopBuildListPolling();
+    buildTriggerLoading.value = false; // 修复：关闭时重置构建按钮状态
   } else {
     // 抽屉显示时，启动 Build 列表轮询
     if (selectedJob && selectedJob.value) {
