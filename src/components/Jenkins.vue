@@ -227,6 +227,14 @@
               >
                 <el-icon><Refresh /></el-icon>
               </el-button>
+              <el-button
+                v-if="row.building"
+                circle
+                type="danger"
+                @click="stopBuild(selectedJob.name, row.number)"
+              >
+                <el-icon><VideoPause /></el-icon>
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -305,7 +313,7 @@
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from "vue";
 import { ElMessage, ElIcon } from "element-plus";
-import { Refresh, Menu, Setting } from "@element-plus/icons-vue";
+import { Refresh, Menu, Setting, VideoPause } from "@element-plus/icons-vue";
 import moment from "moment";
 import { createJenkinsApi } from "../api/jenkins.js";
 import { getBuildStatusType, getBuildStatusText } from "../js/jenkins-utils.js";
@@ -973,6 +981,25 @@ async function refreshBuild(jobName, buildNumber) {
     buildLoading.value[buildKey] = false;
   }
 }
+
+async function stopBuild(jobName, buildNumber) {
+  const buildKey = `${jobName}-${buildNumber}`;
+  buildLoading.value[buildKey] = true;
+  try {
+    await jenkinsApi.stopBuild(jobName, buildNumber);
+    ElMessage.success(`已发送停止构建 #${buildNumber} 的请求`);
+    // After sending the stop request, we should refresh the build status
+    await refreshBuild(jobName, buildNumber);
+  } catch (error) {
+    console.error(`停止构建 #${buildNumber} 失败:`, error);
+    ElMessage.error(
+      `停止构建 #${buildNumber} 失败: ${error.message || "未知错误"}`
+    );
+  } finally {
+    buildLoading.value[buildKey] = false;
+  }
+}
+
 watch(buildMenuVisible, (isVisible) => {
   console.log("抽屉状态改变:", isVisible);
 
