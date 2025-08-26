@@ -566,7 +566,7 @@ function getBuildPercentage(build) {
   }
   const elapsedTime = Date.now() - build.timestamp;
   const percentage = Math.floor((elapsedTime / build.estimatedDuration) * 100);
-  return Math.min(percentage, 100); // 防止超过 100%
+  return percentage;
 }
 
 function getProgressStatus(build) {
