@@ -155,7 +155,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else description="暂无 Job，请检查配置或刷新" />
+        <el-empty v-else description="暂无 Job，请检查配置或刷新" class="jenkins-empty-state" />
       </el-main>
     </el-container>
 
@@ -174,9 +174,10 @@
           >{{ selectedJob?.name }}</span>
         </h4>
       </template>
+      <!-- 优化2：使用 Flexbox 布局管理抽屉主体高度 -->
+      <div class="drawer-body-flex-container">
       <el-scrollbar
         v-loading="drawerLoading"
-        max-height="60vh"
         class="build-table-container"
       >
         <el-table
@@ -190,13 +191,14 @@
           <el-table-column type="expand">
             <template #default="{ row }">
               <div v-if="buildStages[row.number]" class="stage-details-container" v-loading="buildStages[row.number].loading">
-                <el-table v-if="buildStages[row.number].stages && buildStages[row.number].stages.length > 0" :data="buildStages[row.number].stages" size="small" border>
+                <!-- 优化2：移除 border，使内嵌表格更轻量 -->
+                <el-table v-if="buildStages[row.number].stages && buildStages[row.number].stages.length > 0" :data="buildStages[row.number].stages" size="small" class="stage-table">
+                  <!-- 1. 移除 Stage 的可展开功能 -->
                   <el-table-column label="Stage" prop="name" show-overflow-tooltip></el-table-column>
                   <el-table-column label="Status" width="100" align="center">
                     <template #default="{ row: stageRow }">
-                      <el-tooltip :content="stageRow.status" placement="top">
-                        <span>{{ getStageStatusIcon(stageRow.status) }}</span>
-                      </el-tooltip>
+                      <!-- 优化1：使用 Tag 统一状态展示 -->
+                      <el-tag :type="getStageStatusType(stageRow.status)" size="small">{{ getStageStatusText(stageRow.status) }}</el-tag>
                     </template>
                   </el-table-column>
                   <el-table-column label="Duration" width="120">
@@ -275,34 +277,43 @@
           </el-button>
         </div>
       </el-scrollbar>
+      </div>
       <!-- 优化2：将参数表单和构建按钮集成到底部 -->
       <template #footer>
         <div class="drawer-footer-container">
-          <el-form v-if="jobParameterDefinitions.length > 0" :model="buildParameters" label-width="auto" class="build-params-form">
-            <el-form-item
-              v-for="param in jobParameterDefinitions"
-              :key="param.name"
-              :label="param.name"
-            >
-              <template v-if="param.type === 'ChoiceParameterDefinition'">
-                <el-select v-model="buildParameters[param.name]" placeholder="请选择" style="width: 100%;">
-                  <el-option
-                    v-for="choice in param.choices"
-                    :key="choice"
-                    :label="choice"
-                    :value="choice"
-                  />
-                </el-select>
+          <!-- 优化：使用 Collapse 组件收纳参数表单，使其默认折叠 -->
+          <el-collapse v-if="jobParameterDefinitions.length > 0" class="params-collapse">
+            <el-collapse-item name="1">
+              <template #title>
+                构建参数 <span class="params-summary">({{ jobParameterDefinitions.length }} 个参数)</span>
               </template>
-              <template v-else>
-                <el-input
-                  v-model="buildParameters[param.name]"
-                  :placeholder="`不支持的参数类型: ${param.type}`"
-                  disabled
-                />
-              </template>
-            </el-form-item>
-          </el-form>
+              <el-form :model="buildParameters" label-width="auto" class="build-params-form">
+                <el-form-item
+                  v-for="param in jobParameterDefinitions"
+                  :key="param.name"
+                  :label="param.name"
+                >
+                  <template v-if="param.type === 'ChoiceParameterDefinition'">
+                    <el-select v-model="buildParameters[param.name]" placeholder="请选择" style="width: 100%;">
+                      <el-option
+                        v-for="choice in param.choices"
+                        :key="choice"
+                        :label="choice"
+                        :value="choice"
+                      />
+                    </el-select>
+                  </template>
+                  <template v-else>
+                    <el-input
+                      v-model="buildParameters[param.name]"
+                      :placeholder="`不支持的参数类型: ${param.type}`"
+                      disabled
+                    />
+                  </template>
+                </el-form-item>
+              </el-form>
+            </el-collapse-item>
+          </el-collapse>
           <div class="footer-actions">
             <el-button type="primary" @click="confirmBuildWithParams" :loading="buildTriggerLoading">
               {{ jobParameterDefinitions.length > 0 ? '确定构建' : '立即构建' }}
@@ -316,11 +327,11 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from "vue";
-import { ElMessage, ElIcon, ElMessageBox, ElPopover } from "element-plus";
+import { ElMessage, ElIcon, ElMessageBox, ElPopover, ElCollapse, ElCollapseItem } from "element-plus";
 import { Refresh, Menu, Setting, VideoPause } from "@element-plus/icons-vue";
 import moment from "moment";
 import { createJenkinsApi } from "../api/jenkins.js";
-import { getBuildStatusType, getBuildStatusText } from "../js/jenkins-utils.js";
+import { getBuildStatusType, getBuildStatusText, getStageStatusType, getStageStatusText } from "../js/jenkins-utils.js";
 import utools_dev from "../js/utools_mock";
 
 // 优化2：判断文本是否溢出的辅助函数
@@ -387,35 +398,6 @@ function debounce(func, delay) {
     timeout = setTimeout(() => func.apply(context, args), delay);
   };
 }
-
-function getBuildStatusIcon(result, building) {
-  if (building) return "⏳";
-  if (result === "SUCCESS") return "✅";
-  if (result === "FAILURE") return "❌";
-  if (result === "ABORTED") return "🛑";
-  return "❔";
-}
-
-function getStageStatusIcon(status) {
-  switch (status) {
-    case 'SUCCESS':
-      return '✅';
-    case 'UNSTABLE':
-      return '⚠️';
-    case 'FAILED':
-    case 'ABORTED':
-      return '❌';
-    case 'IN_PROGRESS':
-      return '⏳';
-    case 'PAUSED_PENDING_INPUT':
-      return '⏸️';
-    case 'SKIPPED':
-      return '⤵️';
-    default:
-      return '❔';
-  }
-}
-
 
 function formatDuration(duration) {
   if (duration === null || duration === undefined || duration < 0) return "-";
@@ -1144,10 +1126,6 @@ onUnmounted(() => {
   padding-top: 10px; /* 与表格的间距 */
 }
 
-.el-drawer__body {
-  padding: 5px;
-}
-
 .drawer-title {
   margin: 0; /* 移除 h4 的默认 margin */
   display: flex;
@@ -1162,17 +1140,38 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
+/* 优化1 & 2: 抽屉主体布局和边距优化 */
+.drawer-body-flex-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.build-table-container {
+  flex: 1; /* 占据所有剩余空间 */
+  padding: 0 20px; /* 增加左右内边距 */
+}
+
 .drawer-footer-container {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
+.params-collapse {
+  border-top: none; /* 移除 collapse 顶部边框，更简洁 */
+  border-bottom: none; /* 移除 collapse 底部边框 */
+}
+
+.params-summary {
+  color: var(--el-text-color-secondary);
+  font-size: 0.9em;
+  margin-left: 8px;
+}
+
 .build-params-form {
-  padding: 16px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
-  background-color: var(--el-fill-color-light);
+  /* 移除背景和边框，交由 collapse 处理 */
+  padding-top: 16px; /* 增加表单与标题的间距 */
 }
 
 .job-name-container {
@@ -1252,6 +1251,10 @@ onUnmounted(() => {
   font-style: italic;
 }
 
+.jenkins-empty-state {
+  margin-top: 6px; /* 给空状态留点空间 */
+}
+
 .action-buttons {
   display: flex;
   justify-content: center;
@@ -1287,7 +1290,14 @@ onUnmounted(() => {
 
 .stage-details-container {
   padding: 10px;
-  background-color: #f9f9f9;
+  /* 优化3：优化展开内容的视觉样式 */
+  padding: 16px;
+  background-color: var(--el-fill-color-lighter);
+  border-radius: 6px;
+}
+
+.stage-table {
+  border-radius: 4px; /* 给内部表格也加上圆角 */
 }
 </style>
 
