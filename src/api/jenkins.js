@@ -175,6 +175,18 @@ export function createJenkinsApi(config) {
      */
     getQueueItem(queueId) {
       return jenkinsFetch(`/queue/item/${queueId}/api/json`);
+    },
+
+    /**
+     * 获取某次构建的阶段信息 (用于 Pipeline Job)
+     * @param {string} jobName - Job 的名称
+     * @param {number} buildNumber - 构建号
+     * @returns {Promise<any>}
+     */
+    getBuildStages(jobName, buildNumber) {
+      const encodedJobName = jobName.split('/').map(encodeURIComponent).join('/job/');
+      const path = `/job/${encodedJobName}/${buildNumber}/wfapi/describe`;
+      return jenkinsFetch(path);
     }
   };
 }

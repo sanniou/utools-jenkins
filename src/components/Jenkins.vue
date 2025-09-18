@@ -30,18 +30,12 @@
           </el-col>
           <el-col :span="8" style="text-align: right">
             <!-- 4. 增加数据新鲜度指示 -->
-            <span class="update-time-display">{{
-              lastUpdateTimeFormatted
-            }}</span>
+            <span class="update-time-display">{{ lastUpdateTimeFormatted }}</span>
             <el-tooltip content="刷新列表" placement="top">
-              <el-button circle @click="refreshAllJobs"
-                ><el-icon><Refresh /></el-icon
-              ></el-button>
+              <el-button circle @click="refreshAllJobs"><el-icon><Refresh /></el-icon></el-button>
             </el-tooltip>
             <el-tooltip content="设置" placement="top">
-              <el-button circle @click="goToConfig"
-                ><el-icon><Setting /></el-icon
-              ></el-button>
+              <el-button circle @click="goToConfig"><el-icon><Setting /></el-icon></el-button>
             </el-tooltip>
           </el-col>
         </el-row>
@@ -81,21 +75,17 @@
             <template #default="{ row }">
               <el-tag
                 v-if="row.lastBuild"
-                :type="
-                  getBuildStatusType(
+                :type="getBuildStatusType(
                     row.lastBuild.result,
                     row.lastBuild.building
-                  )
-                "
+                  )"
                 class="link-style"
                 @click="openJenkinsBuildUrl(row.name, row.lastBuild.number)"
               >
-                {{
-                  getBuildStatusText(
+                {{ getBuildStatusText(
                     row.lastBuild.result,
                     row.lastBuild.building
-                  )
-                }}
+                  ) }}
               </el-tag>
               <span v-else>无构建历史</span>
             </template>
@@ -181,7 +171,36 @@
         max-height="60vh"
         class="build-table-container"
       >
-        <el-table :data="displayedBuilds" style="width: 100%" stripe border>
+        <el-table
+          :data="displayedBuilds"
+          style="width: 100%"
+          stripe
+          border
+          row-key="number"
+          @expand-change="handleBuildExpand"
+        >
+          <el-table-column type="expand">
+            <template #default="{ row }">
+              <div v-if="buildStages[row.number]" class="stage-details-container" v-loading="buildStages[row.number].loading">
+                <el-table v-if="buildStages[row.number].stages && buildStages[row.number].stages.length > 0" :data="buildStages[row.number].stages" size="small" border>
+                  <el-table-column label="Stage" prop="name" show-overflow-tooltip></el-table-column>
+                  <el-table-column label="Status" width="100" align="center">
+                    <template #default="{ row: stageRow }">
+                      <el-tooltip :content="stageRow.status" placement="top">
+                        <span>{{ getStageStatusIcon(stageRow.status) }}</span>
+                      </el-tooltip>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="Duration" width="120">
+                    <template #default="{ row: stageRow }">
+                      {{ formatDuration(stageRow.durationMillis) }}
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-else-if="!buildStages[row.number].loading" description="无 Stage 数据或非 Pipeline Job" />
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column prop="number" label="No" min-width="40">
             <template #default="{ row }">
               <span
@@ -382,20 +401,43 @@ function getBuildStatusIcon(result, building) {
   return "❔";
 }
 
+function getStageStatusIcon(status) {
+  switch (status) {
+    case 'SUCCESS':
+      return '✅';
+    case 'UNSTABLE':
+      return '⚠️';
+    case 'FAILED':
+    case 'ABORTED':
+      return '❌';
+    case 'IN_PROGRESS':
+      return '⏳';
+    case 'PAUSED_PENDING_INPUT':
+      return '⏸️';
+    case 'SKIPPED':
+      return '⤵️';
+    default:
+      return '❔';
+  }
+}
+
+
 function formatDuration(duration) {
-  if (!duration || duration <= 0) return "-";
-  
-  // Jenkins duration is in milliseconds
+  if (duration === null || duration === undefined || duration < 0) return "-";
+  if (duration === 0) return "0ms";
+
   const seconds = Math.floor(duration / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
-  
+
   if (hours > 0) {
     return `${hours}h ${minutes % 60}m`;
   } else if (minutes > 0) {
     return `${minutes}m ${seconds % 60}s`;
-  } else {
+  } else if (seconds > 0) {
     return `${seconds}s`;
+  } else {
+    return `${duration}ms`;
   }
 }
 
@@ -439,7 +481,7 @@ function getFirstLineChangeSet(changeSets) {
     }
   }
   // 仅返回消息的第一行
-  return firstMsg.split("\n")[0];
+  return firstMsg.split('\n')[0];
 }
 
 const colorClassMap = {
@@ -522,6 +564,7 @@ const jobParameterDefinitions = ref([]);
 const buildParameters = ref({});
 const jobCompletionPollingSet = ref(new Set()); // 存储需要检查是否完成的 Job 名称
 const buildListPollingBuilds = ref(new Set()); // 用于 Build 抽屉的进度轮询
+const buildStages = ref({});
 
 const filteredJobs = computed(() => {
   if (!searchQuery.value) {
@@ -786,7 +829,7 @@ async function refreshAllJobs() {
         jobCompletionPollingSet.value.add(job.name);
       }
     });
-    // 4. 如果有正在构建的任务，启动新的轮询
+    // 4. 如果有正在构建的任务，启动新的的轮询
     if (jobCompletionPollingSet.value.size > 0) {
       startJobListPolling();
     }
@@ -818,6 +861,7 @@ async function openBuildMenu(job) {
   buildMenuVisible.value = true;
   showAllBuilds.value = false; // 重置状态
   drawerLoading.value = true;
+  buildStages.value = {}; // 清空旧的 stage 数据
   try {
     const jobData = await jenkinsApi.getJob(job.name);
     selectedJobBuilds.value = jobData.builds || [];
@@ -862,6 +906,41 @@ async function openBuildMenu(job) {
     drawerLoading.value = false;
   }
 }
+
+async function refreshBuildStages(jobName, buildNumber) {
+  // 设置加载状态
+  buildStages.value[buildNumber] = { loading: true, stages: [] };
+
+  try {
+    const data = await jenkinsApi.getBuildStages(jobName, buildNumber);
+    // 检查返回的数据是否有效
+    if (data && Array.isArray(data.stages)) {
+      buildStages.value[buildNumber] = { loading: false, stages: data.stages };
+    } else {
+      // 如果数据无效（例如，不是 Pipeline Job），则设置为空状态
+      buildStages.value[buildNumber] = { loading: false, stages: [] };
+      console.warn(`构建 #${buildNumber} 没有有效的 stages 数据。`);
+    }
+  } catch (error) {
+    console.error(`获取构建 #${buildNumber} 的 Stage 失败:`, error);
+    ElMessage.error(`获取构建 #${buildNumber} 的 Stage 失败: ${error.message || '未知错误'}`);
+    // 失败时也更新状态，以移除加载指示器
+    buildStages.value[buildNumber] = { loading: false, stages: [], error: true };
+  }
+}
+
+async function handleBuildExpand(row, expandedRows) {
+  const isExpanding = expandedRows.some(expandedRow => expandedRow.number === row.number);
+  if (!isExpanding) return; // 如果是收起，则不执行任何操作
+
+  // 如果已经有数据（非错误状态），则不重复获取
+  if (buildStages.value[row.number] && buildStages.value[row.number].stages.length > 0 && !buildStages.value[row.number].error) {
+    return;
+  }
+
+  await refreshBuildStages(selectedJob.value.name, row.number);
+}
+
 
 // 新增一个处理“立即构建”按钮点击的方法
 function handleBuildClick() {
@@ -990,6 +1069,12 @@ async function refreshBuild(jobName, buildNumber) {
     if (!buildData.building) {
       buildListPollingBuilds.value.delete(buildKey);
     }
+
+    // 如果此构建的 stages 已展开，则刷新它们
+    if (buildStages.value[buildNumber]) {
+      await refreshBuildStages(jobName, buildNumber);
+    }
+
   } catch (error) {
     console.error(`刷新构建 #${buildNumber} 失败:`, error);
     ElMessage.error(
@@ -1163,6 +1248,11 @@ onUnmounted(() => {
   margin-right: 10px;
   font-size: 0.8em;
   color: #999;
+}
+
+.stage-details-container {
+  padding: 10px;
+  background-color: #f9f9f9;
 }
 </style>
 
