@@ -167,19 +167,11 @@
       :destroy-on-close="true"
     >
       <template #header>
+        <!-- 优化1：简化头部，移除重复按钮，增加图标 -->
         <h4 class="drawer-title">
-          构建菜单 -
-          <span class="link-style" @click="openJenkinsJobUrl(selectedJob.name)">
-            {{ selectedJob?.name }}</span
-          >
-          <el-button 
-            type="primary" 
-            size="small" 
+          <el-icon><Menu /></el-icon> 构建历史: <span class="link-style"
             @click="openJenkinsJobUrl(selectedJob.name)"
-            style="margin-left: 10px;"
-          >
-            打开 Jenkins 页面
-          </el-button>
+          >{{ selectedJob?.name }}</span>
         </h4>
       </template>
       <el-scrollbar
@@ -237,15 +229,11 @@
             </template>
           </el-table-column>
           <el-table-column label="Result" min-width="60" align="center">
-            <template #default="{ row }">
-              <el-tooltip
-                :content="getBuildStatusText(row.result, row.building)"
-                placement="top"
-              >
-                <span style="font-size: 1em">{{
-                  getBuildStatusIcon(row.result, row.building)
-                }}</span>
-              </el-tooltip>
+            <!-- 优化3.1：使用 Tag 展示构建结果，与主列表统一 -->
+             <template #default="{ row }">
+              <el-tag :type="getBuildStatusType(row.result, row.building)" size="small">
+                {{ getBuildStatusText(row.result, row.building) }}
+              </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="Progress" min-width="120">
@@ -256,7 +244,8 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="操作" min-width="70">
+          <!-- 优化3.2：操作按钮悬浮显示 -->
+          <el-table-column label="操作" min-width="70" class-name="action-column">
             <template #default="{ row }">
               <el-button
                 circle
@@ -286,65 +275,42 @@
           </el-button>
         </div>
       </el-scrollbar>
+      <!-- 优化2：将参数表单和构建按钮集成到底部 -->
       <template #footer>
-        <span class="dialog-footer">
-          <el-button
-            type="primary"
-            @click="handleBuildClick"
-            :loading="buildTriggerLoading"
-            >立即构建</el-button
-          >
-        </span>
+        <div class="drawer-footer-container">
+          <el-form v-if="jobParameterDefinitions.length > 0" :model="buildParameters" label-width="auto" class="build-params-form">
+            <el-form-item
+              v-for="param in jobParameterDefinitions"
+              :key="param.name"
+              :label="param.name"
+            >
+              <template v-if="param.type === 'ChoiceParameterDefinition'">
+                <el-select v-model="buildParameters[param.name]" placeholder="请选择" style="width: 100%;">
+                  <el-option
+                    v-for="choice in param.choices"
+                    :key="choice"
+                    :label="choice"
+                    :value="choice"
+                  />
+                </el-select>
+              </template>
+              <template v-else>
+                <el-input
+                  v-model="buildParameters[param.name]"
+                  :placeholder="`不支持的参数类型: ${param.type}`"
+                  disabled
+                />
+              </template>
+            </el-form-item>
+          </el-form>
+          <div class="footer-actions">
+            <el-button type="primary" @click="confirmBuildWithParams" :loading="buildTriggerLoading">
+              {{ jobParameterDefinitions.length > 0 ? '确定构建' : '立即构建' }}
+            </el-button>
+          </div>
+        </div>
       </template>
     </el-drawer>
-
-    <el-dialog
-      v-model="buildParamsVisible"
-      :title="`构建 Job - ${selectedJob?.name}`"
-      width="40%"
-      :lock-scroll="false"
-      :destroy-on-close="true"
-    >
-      <el-form :model="buildParameters" label-width="auto">
-        <el-form-item
-          v-for="param in jobParameterDefinitions"
-          :key="param.name"
-          :label="param.name"
-        >
-          <template v-if="param.type === 'ChoiceParameterDefinition'">
-            <el-select
-              v-model="buildParameters[param.name]"
-              placeholder="请选择"
-            >
-              <el-option
-                v-for="choice in param.choices"
-                :key="choice"
-                :label="choice"
-                :value="choice"
-              />
-            </el-select>
-          </template>
-          <template v-else>
-            <el-input
-              v-model="buildParameters[param.name]"
-              :placeholder="`不支持的参数类型: ${param.type}`"
-              disabled
-            />
-          </template>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="buildParamsVisible = false">取消</el-button>
-          <el-button
-            type="primary"
-            @click="confirmBuildWithParams"
-            :loading="buildTriggerLoading"
-            >确定构建</el-button
-          >
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -971,15 +937,6 @@ async function handleBuildExpand(row, expandedRows) {
 }
 
 
-// 新增一个处理“立即构建”按钮点击的方法
-function handleBuildClick() {
-  if (jobParameterDefinitions.value.length > 0) {
-    buildParamsVisible.value = true; // 显示参数输入对话框
-  } else {
-    buildJob(); // 直接构建
-  }
-}
-
 // 修改 buildJob 方法，使其接收参数
 async function buildJob(params = {}) {
   if (!selectedJob.value || !jenkinsApi) return;
@@ -1064,8 +1021,6 @@ async function pollQueueForBuild(queueId, jobName) {
 
 // 新增一个确认带参数构建的方法
 async function confirmBuildWithParams() {
-  buildParamsVisible.value = false; // 关闭参数输入对话框
-
   const paramsToBuild = {};
   jobParameterDefinitions.value.forEach((paramDef) => {
     // 只有非 WHideParameterDefinition 类型的参数才会被传递
@@ -1073,7 +1028,6 @@ async function confirmBuildWithParams() {
       paramsToBuild[paramDef.name] = buildParameters.value[paramDef.name];
     }
   });
-
   await buildJob(paramsToBuild); // 调用 buildJob 并传入过滤后的参数
 }
 
@@ -1176,14 +1130,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-.el-header {
-  padding-top: 20px;
-}
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end; /* 让按钮靠右 */
-  width: 100%;
-}
 
 .build-table-container::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
@@ -1204,6 +1150,9 @@ onUnmounted(() => {
 
 .drawer-title {
   margin: 0; /* 移除 h4 的默认 margin */
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 1rem; /* 保持与默认标题大小一致 */
   color: var(--el-text-color-primary); /* 保持与默认标题颜色一致 */
 }
@@ -1211,6 +1160,19 @@ onUnmounted(() => {
 :deep(.el-drawer__header) {
   margin-bottom: 10px;
   border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.drawer-footer-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.build-params-form {
+  padding: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background-color: var(--el-fill-color-light);
 }
 
 .job-name-container {
@@ -1316,6 +1278,11 @@ onUnmounted(() => {
   margin-right: 10px;
   font-size: 0.8em;
   color: #999;
+}
+
+.footer-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .stage-details-container {
