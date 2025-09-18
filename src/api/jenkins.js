@@ -32,6 +32,11 @@ export function createJenkinsApi(config) {
     try {
       const response = await fetch(url, { ...options, headers });
 
+      // 针对 stop/build 等POST操作，Jenkins 成功后会返回 302 跳转，这应该被视为成功
+      if (response.status === 302 && options.method === 'POST') {
+        return null; // 操作成功，但无内容返回
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Jenkins API Error: ${response.status} ${response.statusText} - ${errorText}`);
