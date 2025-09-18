@@ -1,6 +1,7 @@
 <template>
   <div>
-    <el-container v-loading="loading">
+    <!-- 优化：为容器增加一个统一的类名，便于整体样式控制 -->
+    <el-container v-loading="loading" class="jenkins-container">
       <el-header>
         <el-row :gutter="20" align="middle">
           <el-col :span="16">
@@ -49,93 +50,108 @@
           stripe
           border
         >
-          <!-- 2. 增加行内状态指示器 -->
           <el-table-column
             prop="name"
             label="Name"
             min-width="150"
             sortable
-            show-overflow-tooltip
           >
             <template #default="{ row }">
+              <!-- 优化1：整合状态点、Job名和最近构建状态 -->
               <div class="job-name-container">
                 <span
                   class="status-dot"
                   :class="getJobStatusClass(row.color)"
                 ></span>
-                <span
-                  class="link-style"
-                  @click="openJenkinsJobUrl(row.name)"
-                  v-html="highlightMatchedText(row.name, searchQuery)"
-                ></span>
+                <div class="job-info">
+                  <!-- 优化2：为长 Job 名称增加 Tooltip 展示 -->
+                  <el-tooltip
+                    :content="row.name"
+                    placement="top-start"
+                    :show-after="500"
+                    :disabled="!isTextOverflow(row.name, 200)"
+                  >
+                    <span
+                      class="job-name link-style"
+                      @click="openJenkinsJobUrl(row.name)"
+                      v-html="highlightMatchedText(row.name, searchQuery)"
+                    ></span>
+                  </el-tooltip>
+                  <el-tag v-if="row.lastBuild" :type="getBuildStatusType(row.lastBuild.result, row.lastBuild.building)" size="small" class="build-status-tag" @click="openJenkinsBuildUrl(row.name, row.lastBuild.number)">
+                    #{{ row.lastBuild.number }} - {{ getBuildStatusText(row.lastBuild.result, row.lastBuild.building) }}
+                  </el-tag>
+                </div>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="最近一次 Job" min-width="60">
+          <el-table-column label="变更信息" min-width="220">
             <template #default="{ row }">
-              <el-tag
-                v-if="row.lastBuild"
-                :type="getBuildStatusType(
-                    row.lastBuild.result,
-                    row.lastBuild.building
-                  )"
-                class="link-style"
-                @click="openJenkinsBuildUrl(row.name, row.lastBuild.number)"
+              <!-- 优化2：使用 Popover 展示完整的变更信息 -->
+              <el-popover
+                v-if="row.lastBuild?.changeSets && row.lastBuild.changeSets.length > 0"
+                placement="top-start"
+                title="变更集"
+                :width="400"
+                trigger="click"
               >
-                {{ getBuildStatusText(
-                    row.lastBuild.result,
-                    row.lastBuild.building
-                  ) }}
-              </el-tag>
-              <span v-else>无构建历史</span>
-            </template>
-          </el-table-column>
-          <!-- 1. 优化 “Change Message” 列的视觉一致性 -->
-          <el-table-column label="Change Message" min-width="220">
-            <template #default="{ row }">
-              <el-tooltip
-                :raw-content="true"
-                :content="getFullChangeSets(row.lastBuild?.changeSets)"
-                placement="top"
-                :disabled="
-                  !row.lastBuild?.changeSets ||
-                  row.lastBuild.changeSets.length === 0
-                "
-              >
-                <span class="single-line-ellipsis">
-                  {{ getFirstLineChangeSet(row.lastBuild?.changeSets) }}
-                </span>
-              </el-tooltip>
+                <template #reference>
+                  <span class="single-line-ellipsis link-style">
+                    {{ getFirstLineChangeSet(row.lastBuild?.changeSets) }}
+                  </span>
+                </template>
+                <div class="changeset-popover-content" v-html="getFullChangeSets(row.lastBuild?.changeSets)"></div>
+              </el-popover>
+              <span v-else class="no-changes-text">无变更信息</span>
             </template>
           </el-table-column>
           <el-table-column
-            label="Time"
+            label="构建耗时"
+            sortable
+            sort-by="lastBuild.duration"
+            width="110"
+          >
+            <template #default="{ row }">
+              <span v-if="row.lastBuild">{{ formatDuration(row.lastBuild.duration) }}</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="完成时间"
             sortable
             sort-by="lastBuild.timestamp"
-            min-width="84"
+            width="110"
           >
             <template #default="{ row }">
               {{ formatTimestamp(row.lastBuild?.timestamp) }}
             </template>
           </el-table-column>
-          <!-- 3. 引入 “悬浮操作” -->
+          <!-- 3. 引入 “更多操作” -->
           <el-table-column
-            label="Action"
-            min-width="90"
+            label="操作"
+            width="100"
             align="center"
             class-name="action-column"
           >
             <template #default="{ row }">
-              <el-button
-                circle
-                @click="refreshJob(row.name)"
-                :loading="jobLoading[row.name]"
-              >
-                <el-icon><Refresh /></el-icon>
-              </el-button>
-              <el-button circle @click="openBuildMenu(row)">
-                <el-icon><Menu /></el-icon>
-              </el-button>
+              <!-- 优化1：为操作按钮增加容器和间距 -->
+              <div class="action-buttons">
+                <el-button
+                  circle
+                  @click="refreshJob(row.name)"
+                  :loading="jobLoading[row.name]"
+                  title="刷新状态"
+                >
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+                <el-button
+                  circle
+                  @click="openBuildMenu(row)"
+                  title="构建菜单"
+                >
+                  <el-icon><Menu /></el-icon>
+                </el-button>
+
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -334,12 +350,25 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from "vue";
-import { ElMessage, ElIcon } from "element-plus";
+import { ElMessage, ElIcon, ElMessageBox, ElPopover } from "element-plus";
 import { Refresh, Menu, Setting, VideoPause } from "@element-plus/icons-vue";
 import moment from "moment";
 import { createJenkinsApi } from "../api/jenkins.js";
 import { getBuildStatusType, getBuildStatusText } from "../js/jenkins-utils.js";
 import utools_dev from "../js/utools_mock";
+
+// 优化2：判断文本是否溢出的辅助函数
+function isTextOverflow(text, maxWidth, fontSize = 14) {
+  const span = document.createElement('span');
+  span.style.fontSize = `${fontSize}px`;
+  span.style.visibility = 'hidden';
+  span.style.position = 'absolute';
+  span.innerText = text;
+  document.body.appendChild(span);
+  const textWidth = span.offsetWidth;
+  document.body.removeChild(span);
+  return textWidth > maxWidth;
+}
 
 let utools = window.utools ? window.utools : utools_dev;
 
@@ -1142,6 +1171,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.jenkins-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
 .el-header {
   padding-top: 20px;
 }
@@ -1174,11 +1208,32 @@ onUnmounted(() => {
   color: var(--el-text-color-primary); /* 保持与默认标题颜色一致 */
 }
 
-/* 3. 为抽屉的 Header 添加下边框和内边距，提升视觉层次感 */
 :deep(.el-drawer__header) {
   margin-bottom: 10px;
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
+
+.job-name-container {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 使用 gap 属性控制间距 */
+}
+
+.job-info {
+  display: flex;
+  flex-direction: column; /* 垂直排列 Job 名称和 Tag */
+  gap: 4px;
+  overflow: hidden; /* 防止内容溢出 */
+}
+
+.job-name {
+  font-weight: 500; /* Job 名称加粗一些 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 .highlight {
   background-color: yellow;
   font-weight: bold;
@@ -1192,12 +1247,6 @@ onUnmounted(() => {
   background-color: var(--el-fill-color-blank);
 }
 
-/* 2. 增加行内状态指示器 */
-.job-name-container {
-  display: flex;
-  align-items: center;
-}
-
 .status-dot {
   width: 8px;
   height: 8px;
@@ -1205,6 +1254,11 @@ onUnmounted(() => {
   margin-right: 8px;
   display: inline-block;
   flex-shrink: 0; /* 关键：防止圆点在空间不足时被压缩 */
+}
+.build-status-tag {
+  width: fit-content; /* 让 Tag 宽度自适应内容 */
+  cursor: pointer;
+  border: none; /* 移除 Tag 边框，更简洁 */
 }
 
 .status-blue {
@@ -1224,23 +1278,37 @@ onUnmounted(() => {
   background-color: #999; /* 或您喜欢的灰色 */
 }
 
-/* 1. 优化 “Change Message” 列的视觉一致性 */
 .single-line-ellipsis {
   display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  width: 100%;
 }
 
-/* 3. 引入 “悬浮操作” */
+.no-changes-text {
+  color: var(--el-text-color-placeholder);
+  font-style: italic;
+}
+
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* 优化：恢复悬浮显示操作按钮 */
 .action-column .el-button {
-  opacity: 0; /* 初始状态下隐藏按钮 */
-  transition: opacity 0.3s ease; /* 添加一个过渡效果 */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.changeset-popover-content {
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .el-table__row:hover .action-column .el-button {
-  opacity: 1; /* 鼠标悬浮时显示按钮 */
+  opacity: 1;
 }
 
 /* 4. 增加数据新鲜度指示 */
@@ -1256,6 +1324,7 @@ onUnmounted(() => {
 }
 </style>
 
+<!-- 优化：将全局样式移到 App.vue 或主样式文件中，这里为了演示方便保留 -->
 <style>
 /* 1. 始终为滚动条轨道预留空间，防止布局跳动 */
 html {
