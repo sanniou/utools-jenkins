@@ -9,7 +9,6 @@
               v-model="searchQuery"
               placeholder="搜索 Job"
               clearable
-              @input="debouncedFilterJobs"
               class="input-with-select"
             >
               <template #prepend>
@@ -287,7 +286,7 @@
               <template #title>
                 构建参数 <span class="params-summary">({{ jobParameterDefinitions.length }} 个参数)</span>
               </template>
-              <el-form :model="buildParameters" label-width="auto" class="build-params-form">
+              <el-form :model="buildParameters" label-width="auto" class="build-params-form" size="small">
                 <el-form-item
                   v-for="param in jobParameterDefinitions"
                   :key="param.name"
@@ -327,7 +326,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from "vue";
-import { ElMessage, ElIcon, ElMessageBox, ElPopover, ElCollapse, ElCollapseItem } from "element-plus";
+import { ElMessage, ElIcon, ElMessageBox, ElPopover, ElCollapse, ElCollapseItem, ElForm, ElFormItem, ElSelect, ElOption, ElInput } from "element-plus";
 import { Refresh, Menu, Setting, VideoPause } from "@element-plus/icons-vue";
 import moment from "moment";
 import { createJenkinsApi } from "../api/jenkins.js";
@@ -388,15 +387,6 @@ function highlightMatchedText(text, query) {
     );
   });
   return highlightedText;
-}
-
-function debounce(func, delay) {
-  let timeout;
-  return function (...args) {
-    const context = this;
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(context, args), delay);
-  };
 }
 
 function formatDuration(duration) {
@@ -1093,12 +1083,6 @@ watch(buildMenuVisible, (isVisible) => {
   }
 });
 
-// Debounced filter function
-const debouncedFilterJobs = debounce(() => {
-  // The actual filtering logic is now in the computed property `filteredJobs`
-  // 2. 移除此处的更新逻辑，因为它只与过滤相关，不代表数据刷新
-}, 300);
-
 onUnmounted(() => {
   stopJobListPolling();
   stopBuildListPolling();
@@ -1147,10 +1131,6 @@ onUnmounted(() => {
   height: 100%;
   overflow: hidden;
 }
-.build-table-container {
-  flex: 1; /* 占据所有剩余空间 */
-  padding: 0 20px; /* 增加左右内边距 */
-}
 
 .drawer-footer-container {
   display: flex;
@@ -1158,21 +1138,6 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.params-collapse {
-  border-top: none; /* 移除 collapse 顶部边框，更简洁 */
-  border-bottom: none; /* 移除 collapse 底部边框 */
-}
-
-.params-summary {
-  color: var(--el-text-color-secondary);
-  font-size: 0.9em;
-  margin-left: 8px;
-}
-
-.build-params-form {
-  /* 移除背景和边框，交由 collapse 处理 */
-  padding-top: 16px; /* 增加表单与标题的间距 */
-}
 
 .job-name-container {
   display: flex;
@@ -1289,16 +1254,10 @@ onUnmounted(() => {
 }
 
 .stage-details-container {
-  padding: 10px;
-  /* 优化3：优化展开内容的视觉样式 */
-  padding: 16px;
+  padding-left: 10px;
   background-color: var(--el-fill-color-lighter);
-  border-radius: 6px;
 }
 
-.stage-table {
-  border-radius: 4px; /* 给内部表格也加上圆角 */
-}
 </style>
 
 <!-- 优化：将全局样式移到 App.vue 或主样式文件中，这里为了演示方便保留 -->
