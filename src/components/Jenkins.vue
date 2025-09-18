@@ -166,6 +166,14 @@
           <span class="link-style" @click="openJenkinsJobUrl(selectedJob.name)">
             {{ selectedJob?.name }}</span
           >
+          <el-button 
+            type="primary" 
+            size="small" 
+            @click="openJenkinsJobUrl(selectedJob.name)"
+            style="margin-left: 10px;"
+          >
+            打开 Jenkins 页面
+          </el-button>
         </h4>
       </template>
       <el-scrollbar
@@ -183,22 +191,14 @@
               >
             </template>
           </el-table-column>
-          <el-table-column
-            prop="url"
-            label="URL"
-            min-width="150"
-            show-overflow-tooltip
-          >
+          <el-table-column label="Duration" min-width="100">
             <template #default="{ row }">
-              <el-link :href="row.url" target="_blank">{{ row.url }}</el-link>
+              {{ formatDuration(row.duration) }}
             </template>
           </el-table-column>
-          <el-table-column label="Progress" min-width="120">
+          <el-table-column prop="timestamp" label="Build Time" min-width="120">
             <template #default="{ row }">
-              <el-progress
-                :percentage="getBuildPercentage(row)"
-                :status="getProgressStatus(row)"
-              />
+              {{ formatTimestamp(row.timestamp) }}
             </template>
           </el-table-column>
           <el-table-column label="Result" min-width="60" align="center">
@@ -213,9 +213,12 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column prop="timestamp" label="Build Time" min-width="120">
+          <el-table-column label="Progress" min-width="120">
             <template #default="{ row }">
-              {{ formatTimestamp(row.timestamp) }}
+              <el-progress
+                :percentage="getBuildPercentage(row)"
+                :status="getProgressStatus(row)"
+              />
             </template>
           </el-table-column>
           <el-table-column label="操作" min-width="70">
@@ -377,6 +380,23 @@ function getBuildStatusIcon(result, building) {
   if (result === "FAILURE") return "❌";
   if (result === "ABORTED") return "🛑";
   return "❔";
+}
+
+function formatDuration(duration) {
+  if (!duration || duration <= 0) return "-";
+  
+  // Jenkins duration is in milliseconds
+  const seconds = Math.floor(duration / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
 }
 
 function getFullChangeSets(changeSets) {
