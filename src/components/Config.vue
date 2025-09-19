@@ -1,13 +1,17 @@
 <template>
-  <div class="config-page-container">
-    <!-- 1. 将“回到 Jenkins”作为按钮的明确文本，并放置在左上角，符合返回操作的习惯 -->
-    <el-button class="back-button" @click="returnBack">
-      <el-icon><ArrowLeftBold /></el-icon>
-      回到 Jenkins
-    </el-button>
+  <!-- 1. 采用 el-container 构建标准布局 -->
+  <el-container class="config-page-container">
+    <!-- 2. 新增 el-header，提供一致的导航体验 -->
+    <el-header class="config-header">
+      <el-button text @click="returnBack">
+        <el-icon><ArrowLeftBold /></el-icon>
+        返回
+      </el-button>
+      <h4 class="header-title">Jenkins 实例配置</h4>
+    </el-header>
 
+    <!-- 3. el-main 作为主要内容区域 -->
     <el-main class="config-main">
-      <!-- 2. 彻底移除页面标题，让布局更专注于内容 -->
       <el-form
         v-if="configList.length > 0"
         ref="form"
@@ -73,11 +77,11 @@
       ></el-empty>
     </el-main>
 
-    <!-- 2. 移除浮动按钮上不必要的 Tooltip，让界面更简洁 -->
+    <!-- 4. 保留 FAB 按钮用于添加操作 -->
     <el-button class="add-fab" type="primary" circle @click="addConf">
       <el-icon><Plus /></el-icon>
     </el-button>
-  </div>
+  </el-container>
 </template>
 
 <script setup>
@@ -190,22 +194,33 @@ function returnBack() {
 
 <style scoped>
 .config-page-container {
-  position: relative;
   height: 100vh;
   background-color: #f7f8fa; /* 使用柔和的背景色，让卡片更突出 */
-  overflow-y: auto; /* 允许内容滚动 */
+}
+
+/* 5. 新增 header 样式 */
+.config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 0 16px;
+}
+
+.header-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  /* 通过 flex-grow 和 text-align 实现标题居中，同时不影响按钮位置 */
+  flex-grow: 1;
+  text-align: center;
+  /* 减去按钮的大致宽度，以实现更精确的居中 */
+  margin-right: 80px;
 }
 
 .config-main {
-  /* 3. 调整顶部内边距，为返回按钮留出空间，并使内容区与顶部有合适的间距 */
-  padding: 60px 20px 100px 20px;
-}
-
-.back-button {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 10;
+  /* 6. 调整 padding，移除旧的顶部间距 */
+  padding: 20px 20px 100px 20px;
 }
 
 .add-fab {
@@ -226,9 +241,9 @@ function returnBack() {
 }
 .box-card {
   margin-bottom: 24px;
-  border-radius: 12px; /* 3. 增加圆角，使卡片更柔和 */
+  border-radius: 12px; /* 增加圆角，使卡片更柔和 */
   border: none; /* 移除边框，完全依赖阴影 */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 3. 使用更柔和、自然的阴影 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 使用更柔和、自然的阴影 */
   transition: all 0.3s ease;
 }
 
